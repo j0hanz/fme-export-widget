@@ -25,7 +25,7 @@ System.register([], function (e) {
         lblOutlineWidth: "Konturens tjocklek",
         lblFillOpacity: "Fyllnadstransparens (%)",
         lblSupportEmail: "Supportkontakt",
-        lblEnableLogging: "Aktivera Loggar",
+        lblEnableLogging: "Aktivera loggning",
         errNoServerUrl: "FME Flow server-URL krävs",
         errNoToken: "API-token krävs",
         errTokenSpaces: "API-token får inte innehålla mellanslag",
@@ -35,14 +35,15 @@ System.register([], function (e) {
         errRequireHttps: "Endast HTTPS-adresser tillåts",
         errNoFmerest: "Ange bas-URL utan /fmerest för webhook-konfiguration",
         errTokenInvalid: "API-token är ogiltigt",
-        errLoadRepositories: "Kunde inte hämta repositories från FME Flow",
+        errLoadRepositories:
+          "Det gick inte att hämta repositories från FME Flow",
         errServerUrl: "Ogiltig URL",
         errRepositoryMissing: "Det valda repositoryt finns inte längre",
         errRepositoryAccess:
-          "Repository är inte tillgängligt med aktuellt API-token. Kontrollera behörigheter",
+          "Repositoryt är inte tillgängligt med nuvarande API-token. Kontrollera dina behörigheter",
         errAreaTooLarge: "Värdet överskrider maxgränsen",
         errUploadParamRequired:
-          "Uppladdningsparameter krävs när filuppladdning är aktiverad",
+          "Uppladdningsparametern krävs när filuppladdning är aktiverad",
         errInvalidEmail: "Ogiltig e-postadress",
         errorInvalidServerUrl: "Ogiltig server-URL",
         errorTokenIsInvalid: "API-token är ogiltigt",
@@ -71,12 +72,12 @@ System.register([], function (e) {
         statusValidateToken: "Verifierar API-token…",
         statusOk: "OK",
         statusFailed: "Misslyckades",
-        statusSkipped: "Hoppades över",
+        statusSkipped: "Förbigicks",
         statusChecking: "Kontrollerar…",
         statusError: "Fel",
         msgConnectionOk: "Anslutningen till FME Flow lyckades",
         msgConnectionWarning:
-          "Anslutningen lyckades men repositoryt kunde inte verifieras. Kontrollera API-token behörigheter",
+          "Anslutningen lyckades men repositoryt kunde inte verifieras. Kontrollera API-token-behörigheterna.",
         msgFixErrors: "Åtgärda felen ovan innan du fortsätter",
         msgNoRepositories: "Inga repositories hittades på FME Flow-servern",
         msgAreaExceeds:
@@ -112,11 +113,11 @@ System.register([], function (e) {
         hintOutlineWidth:
           "Konturens tjocklek i pixlar (0,1–5,0). Justeras stegvis via reglaget",
         hintFillOpacity:
-          "Transparens för områdesfyllnad (0-100%). Högre värde ger mer ogenomskinlig fyllnad",
+          "Transparens för områdesfyllnad (0–100 %). Ett högre värde ger en mer ogenomskinlig fyllnad",
         hintSupportEmail:
-          "Visas i felmeddelanden som kontaktväg för användare. Lämna tomt för att inte visa supportkontakt",
+          "Visas i felmeddelanden som kontaktväg för användare. Lämna tomt för att dölja supportkontakten",
         hintEnableLogging:
-          "Aktivera detaljerad loggning för felsökning och analys, aktivera endast vid behov.",
+          "Aktivera detaljerad loggning för felsökning och analys. Aktivera endast vid behov.",
         hintTestFirst: "Testa anslutningen innan du fortsätter konfigurationen",
         tokenSettingsHint: "Verifiera API-token i inställningarna",
         serverUrlSettingsHint:
@@ -127,7 +128,7 @@ System.register([], function (e) {
         networkConnectionHint:
           "Kontrollera nätverksanslutning och brandväggsinställningar",
         phServerUrl: "https://fmeflow.example.com",
-        phApiToken: "fmetoken token=abc123...",
+        phApiToken: "API-token",
         phRepository: "Välj repository",
         phEmail: "support@foretag.se",
         phMaxArea: "100000000",
@@ -137,7 +138,7 @@ System.register([], function (e) {
         phRequestTimeout: "30000",
         phAoiParam: "AreaOfInterest",
         phUploadParam: "DEST_DATASET",
-        optAsync: "E-postmeddelande",
+        optAsync: "E‑postavisering",
         optSync: "Direkt nedladdning",
         valRequiredField: "Obligatoriskt fält",
         ariaRequired: "Obligatoriskt fält",
@@ -146,7 +147,7 @@ System.register([], function (e) {
         panelSettings: "Inställningar",
         panelAdvancedSettings: "Avancerade inställningar",
         panelDrawingSettings: "Ritinställningar",
-      })
+      });
     },
-  }
-})
+  };
+});

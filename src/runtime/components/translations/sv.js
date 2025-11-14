@@ -131,7 +131,7 @@ System.register([], function (e) {
         ariaEmptyActions: "Tomma resultat",
         ariaSuccessActions: "Lyckad åtgärd",
         ariaRequired: "Obligatoriskt fält",
-      })
+      });
     },
-  }
-})
+  };
+});

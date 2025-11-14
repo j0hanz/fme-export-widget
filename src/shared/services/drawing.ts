@@ -1,19 +1,20 @@
-import type { JimuMapView } from "jimu-arcgis"
+import type { JimuMapView } from "jimu-arcgis";
 import type {
-  EsriModules,
-  DrawingSessionState,
   DrawingCompletionResult,
-} from "../../config/index"
-import { LAYER_CONFIG, DrawingTool, ViewMode } from "../../config/index"
-import { logIfNotAbort, normalizeSketchCreateTool } from "../utils"
-import { safeCancelSketch } from "../hooks"
-import { fmeActions } from "../../extensions/store"
+  DrawingSessionState,
+  EsriModules,
+  SketchViewModelWithCleanup,
+} from "../../config/index";
+import { DrawingTool, LAYER_CONFIG, ViewMode } from "../../config/index";
+import { fmeActions } from "../../extensions/store";
+import { safeCancelSketch } from "../hooks";
+import { logIfNotAbort, normalizeSketchCreateTool } from "../utils";
 import {
-  validatePolygon,
   calcArea,
-  evaluateArea,
   checkMaxArea,
-} from "../utils/geometry"
+  evaluateArea,
+  validatePolygon,
+} from "../utils/geometry";
 
 // Skapar GraphicsLayers för ritning och preview
 export function createLayers(
@@ -21,11 +22,11 @@ export function createLayers(
   modules: EsriModules,
   setGraphicsLayer: (layer: __esri.GraphicsLayer) => void
 ): __esri.GraphicsLayer {
-  const layer = new modules.GraphicsLayer(LAYER_CONFIG)
-  jmv.view.map.add(layer)
-  setGraphicsLayer(layer)
+  const layer = new modules.GraphicsLayer(LAYER_CONFIG);
+  jmv.view.map.add(layer);
+  setGraphicsLayer(layer);
 
-  return layer
+  return layer;
 }
 
 // Konfigurerar event-handlers för SketchViewModel (create/update/undo/redo)
@@ -37,76 +38,78 @@ export function setupSketchEventHandlers({
   onDrawingSessionChange,
   onSketchToolStart,
 }: {
-  sketchViewModel: __esri.SketchViewModel
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
-  dispatch: (action: unknown) => void
-  widgetId: string
-  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-  onSketchToolStart: (tool: DrawingTool) => void
+  sketchViewModel: __esri.SketchViewModel;
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void;
+  dispatch: (action: unknown) => void;
+  widgetId: string;
+  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void;
+  onSketchToolStart: (tool: DrawingTool) => void;
 }): () => void {
-  let clickCount = 0
+  let clickCount = 0;
 
   const createHandle = sketchViewModel.on(
     "create",
     (evt: __esri.SketchCreateEvent) => {
       switch (evt.state) {
         case "start": {
-          clickCount = 0
-          const normalizedTool = normalizeSketchCreateTool(evt.tool)
+          clickCount = 0;
+          const normalizedTool = normalizeSketchCreateTool(evt.tool);
           if (!normalizedTool) {
-            safeCancelSketch(sketchViewModel)
-            onDrawingSessionChange({ isActive: false, clickCount: 0 })
-            return
+            safeCancelSketch(sketchViewModel);
+            onDrawingSessionChange({ isActive: false, clickCount: 0 });
+            return;
           }
-          onDrawingSessionChange({ isActive: true, clickCount: 0 })
+          onDrawingSessionChange({ isActive: true, clickCount: 0 });
           onSketchToolStart(
             normalizedTool === "rectangle"
               ? DrawingTool.RECTANGLE
               : DrawingTool.POLYGON
-          )
-          break
+          );
+          break;
         }
 
         case "active": {
-          const normalizedTool = normalizeSketchCreateTool(evt.tool)
+          const normalizedTool = normalizeSketchCreateTool(evt.tool);
           if (normalizedTool === "polygon" && evt.graphic?.geometry) {
-            const geometry = evt.graphic.geometry as __esri.Polygon
-            const vertices = geometry.rings?.[0]
-            const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
+            const geometry = evt.graphic.geometry as __esri.Polygon;
+            const vertices = geometry.rings?.[0];
+            const actualClicks = vertices
+              ? Math.max(0, vertices.length - 1)
+              : 0;
             if (actualClicks > clickCount) {
-              clickCount = actualClicks
+              clickCount = actualClicks;
               onDrawingSessionChange({
                 clickCount: actualClicks,
                 isActive: true,
-              })
+              });
               if (actualClicks === 1) {
-                dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+                dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId));
               }
             }
           } else if (normalizedTool === "rectangle" && clickCount !== 1) {
-            clickCount = 1
-            onDrawingSessionChange({ clickCount: 1, isActive: true })
+            clickCount = 1;
+            onDrawingSessionChange({ clickCount: 1, isActive: true });
           }
-          break
+          break;
         }
 
         case "complete":
-          clickCount = 0
-          onDrawingSessionChange({ isActive: false, clickCount: 0 })
+          clickCount = 0;
+          onDrawingSessionChange({ isActive: false, clickCount: 0 });
           try {
-            onDrawComplete(evt)
+            onDrawComplete(evt);
           } catch (err: unknown) {
-            logIfNotAbort("onDrawComplete error", err)
+            logIfNotAbort("onDrawComplete error", err);
           }
-          break
+          break;
 
         case "cancel":
-          clickCount = 0
-          onDrawingSessionChange({ isActive: false, clickCount: 0 })
-          break
+          clickCount = 0;
+          onDrawingSessionChange({ isActive: false, clickCount: 0 });
+          break;
       }
     }
-  )
+  );
 
   const updateHandle = sketchViewModel.on(
     "update",
@@ -115,97 +118,100 @@ export function setupSketchEventHandlers({
         evt.state === "complete" &&
         Array.isArray(evt.graphics) &&
         evt.graphics.length > 0 &&
-        (evt.graphics[0] as any)?.geometry
+        evt.graphics[0]?.geometry
       ) {
-        const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)
+        const normalizedTool = normalizeSketchCreateTool(
+          (evt as unknown as { tool?: string })?.tool
+        );
         try {
           onDrawComplete({
-            graphic: evt.graphics[0] as any,
+            graphic: evt.graphics[0],
             state: "complete",
-            tool: normalizedTool ?? (evt as any).tool,
-          } as any)
+            tool: normalizedTool ?? (evt as unknown as { tool?: string }).tool,
+          } as __esri.SketchCreateEvent);
         } catch (err: unknown) {
-          logIfNotAbort("onDrawComplete update error", err)
+          logIfNotAbort("onDrawComplete update error", err);
         }
       }
     }
-  )
+  );
 
   return () => {
     try {
-      createHandle?.remove()
+      createHandle?.remove();
     } catch {}
     try {
-      updateHandle?.remove()
+      updateHandle?.remove();
     } catch {}
     try {
-      ;(sketchViewModel as any).__fmeCleanup__ = undefined
+      const cleanupCarrier = sketchViewModel as SketchViewModelWithCleanup;
+      cleanupCarrier.__fmeCleanup__ = undefined;
     } catch {}
-  }
+  };
 }
 
 // Processes drawing completion with validation and area calculation
 
 export async function processDrawingCompletion(params: {
-  geometry: __esri.Geometry | undefined
-  modules: any
-  graphicsLayer: __esri.GraphicsLayer | undefined
-  config: any
-  signal: AbortSignal
+  geometry: __esri.Geometry | undefined;
+  modules: EsriModules;
+  graphicsLayer: __esri.GraphicsLayer | undefined;
+  config: { areaThreshold?: number; largeAreaThreshold?: number };
+  signal: AbortSignal;
 }): Promise<DrawingCompletionResult> {
-  const { geometry, modules, config, signal } = params
+  const { geometry, modules, config, signal } = params;
 
   if (!geometry) {
-    return { success: false, error: { code: "NO_GEOMETRY" } }
+    return { success: false, error: { code: "NO_GEOMETRY" } };
   }
 
   if (signal.aborted) {
-    return { success: false, error: { code: "ABORTED" } }
+    return { success: false, error: { code: "ABORTED" } };
   }
 
-  const validation = await validatePolygon(geometry, modules)
+  const validation = await validatePolygon(geometry, modules);
 
   if (signal.aborted) {
-    return { success: false, error: { code: "ABORTED" } }
+    return { success: false, error: { code: "ABORTED" } };
   }
 
   if (!validation.valid) {
-    return { success: false, error: validation.error }
+    return { success: false, error: validation.error };
   }
 
-  const geomForUse = validation.simplified ?? (geometry as __esri.Polygon)
-  const calculatedArea = await calcArea(geomForUse, modules)
+  const geomForUse = validation.simplified ?? (geometry as __esri.Polygon);
+  const calculatedArea = await calcArea(geomForUse, modules);
 
   if (signal.aborted) {
-    return { success: false, error: { code: "ABORTED" } }
+    return { success: false, error: { code: "ABORTED" } };
   }
 
   if (!calculatedArea || calculatedArea <= 0) {
     return {
       success: false,
       error: { code: "ZERO_AREA", message: "geometryInvalidCode" },
-    }
+    };
   }
 
-  const normalizedArea = Math.abs(calculatedArea)
+  const normalizedArea = Math.abs(calculatedArea);
   const areaEvaluation = evaluateArea(normalizedArea, {
-    maxArea: config?.maxArea,
-    largeArea: config?.largeArea,
-  })
+    maxArea: config?.areaThreshold,
+    largeArea: config?.largeAreaThreshold,
+  });
 
   if (signal.aborted) {
-    return { success: false, error: { code: "ABORTED" } }
+    return { success: false, error: { code: "ABORTED" } };
   }
 
   if (areaEvaluation.exceedsMaximum) {
-    const maxCheck = checkMaxArea(normalizedArea, config?.maxArea)
+    const maxCheck = checkMaxArea(normalizedArea, config?.areaThreshold);
     return {
       success: false,
       error: {
         code: maxCheck.code,
         message: maxCheck.message || "geometryAreaTooLargeCode",
       },
-    }
+    };
   }
 
   return {
@@ -213,7 +219,7 @@ export async function processDrawingCompletion(params: {
     geometry: geomForUse,
     area: normalizedArea,
     shouldWarn: areaEvaluation.shouldWarn,
-  }
+  };
 }
 
 // Skapar SketchViewModel med event-handlers och cleanup-funktioner
@@ -228,22 +234,22 @@ export function createSketchVM({
   onDrawingSessionChange,
   onSketchToolStart,
 }: {
-  jmv: JimuMapView
-  modules: EsriModules
-  layer: __esri.GraphicsLayer
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
-  dispatch: (action: unknown) => void
-  widgetId: string
+  jmv: JimuMapView;
+  modules: EsriModules;
+  layer: __esri.GraphicsLayer;
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void;
+  dispatch: (action: unknown) => void;
+  widgetId: string;
   symbols: {
-    polygon: any
-    polyline: any
-    point: any
-  }
-  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-  onSketchToolStart: (tool: DrawingTool) => void
+    polygon: __esri.SimpleFillSymbol;
+    polyline: __esri.SimpleLineSymbol;
+    point: __esri.SimpleMarkerSymbol;
+  };
+  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void;
+  onSketchToolStart: (tool: DrawingTool) => void;
 }): {
-  sketchViewModel: __esri.SketchViewModel
-  cleanup: () => void
+  sketchViewModel: __esri.SketchViewModel;
+  cleanup: () => void;
 } {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
@@ -298,7 +304,7 @@ export function createSketchVM({
         area: "square-meters",
       },
     },
-  })
+  });
 
   const cleanup = setupSketchEventHandlers({
     sketchViewModel,
@@ -307,7 +313,8 @@ export function createSketchVM({
     widgetId,
     onDrawingSessionChange,
     onSketchToolStart,
-  })
-  ;(sketchViewModel as any).__fmeCleanup__ = cleanup
-  return { sketchViewModel, cleanup }
+  });
+  const sketchWithCleanup = sketchViewModel as SketchViewModelWithCleanup;
+  sketchWithCleanup.__fmeCleanup__ = cleanup;
+  return { sketchViewModel, cleanup };
 }

@@ -1,12 +1,12 @@
-import type { RemoteDatasetOptions, ApiResponse } from "../../config/index"
+import type { ApiResponse, RemoteDatasetOptions } from "../../config/index";
 import {
+  applyUploadedDatasetParam,
+  resolveUploadTargetParam,
+  sanitizeOptGetUrlParam,
   shouldApplyRemoteDatasetUrl,
   shouldUploadRemoteDataset,
   toTrimmedString,
-  sanitizeOptGetUrlParam,
-  applyUploadedDatasetParam,
-  resolveUploadTargetParam,
-} from "../utils"
+} from "../utils";
 
 // Löser remote dataset genom att ladda upp eller länka via opt_geturl
 export async function resolveRemoteDataset({
@@ -21,24 +21,24 @@ export async function resolveRemoteDataset({
   subfolder,
   workspaceName,
 }: RemoteDatasetOptions): Promise<void> {
-  sanitizeOptGetUrlParam(params, config)
+  sanitizeOptGetUrlParam(params, config);
 
   if (shouldApplyRemoteDatasetUrl(remoteUrl, config)) {
-    params.opt_geturl = remoteUrl
-    return
+    params.opt_geturl = remoteUrl;
+    return;
   }
 
   if (!shouldUploadRemoteDataset(config, uploadFile)) {
-    return
+    return;
   }
 
-  const targetWorkspace = toTrimmedString(workspaceName)
+  const targetWorkspace = toTrimmedString(workspaceName);
   if (!targetWorkspace) {
-    throw new Error("REMOTE_DATASET_WORKSPACE_REQUIRED")
+    throw new Error("REMOTE_DATASET_WORKSPACE_REQUIRED");
   }
 
   if (typeof params.opt_geturl !== "undefined") {
-    delete params.opt_geturl
+    delete params.opt_geturl;
   }
 
   const uploadResponse = await makeCancelable<ApiResponse<{ path: string }>>(
@@ -48,13 +48,13 @@ export async function resolveRemoteDataset({
       repository: config?.repository,
       workspace: targetWorkspace,
     })
-  )
+  );
 
-  const uploadedPath = uploadResponse.data?.path
+  const uploadedPath = uploadResponse.data?.path;
   applyUploadedDatasetParam({
     finalParams: params,
     uploadedPath,
     parameters: workspaceParameters,
     explicitTarget: resolveUploadTargetParam(config),
-  })
+  });
 }

@@ -1,13 +1,23 @@
-import { css, type IMThemeVariables, type ImmutableObject } from "jimu-core"
-import { useTheme } from "jimu-theme"
-import type { TypographyStyle } from "jimu-theme"
-import type { BtnContentProps } from "./types"
+import { css, type ImmutableObject, type IMThemeVariables } from "jimu-core";
+import { useTheme } from "jimu-theme";
+import type { TypographyStyle } from "jimu-theme";
+import { LOADING_UI_CONFIG, TOOLTIP_CONFIG, UI_CONFIG } from "./constants";
+import type { BtnContentProps } from "./types";
 
 // UI component configuration constants
 export const config = {
-  icon: { small: 16, medium: 18, large: 24 },
+  icon: {
+    small: UI_CONFIG.ICON_SIZE_SMALL,
+    medium: UI_CONFIG.ICON_SIZE_MEDIUM,
+    large: UI_CONFIG.ICON_SIZE_LARGE,
+  },
   tooltip: {
-    delay: { enter: 100, next: 0, leave: 0, touch: 700 },
+    delay: {
+      enter: TOOLTIP_CONFIG.DELAY_ENTER_MS,
+      next: TOOLTIP_CONFIG.DELAY_NEXT_MS,
+      leave: TOOLTIP_CONFIG.DELAY_LEAVE_MS,
+      touch: TOOLTIP_CONFIG.DELAY_TOUCH_MS,
+    },
     position: {
       top: "top" as const,
       bottom: "bottom" as const,
@@ -23,14 +33,14 @@ export const config = {
   },
   zIndex: { selectMenu: 1005, overlay: 1000 },
   loading: {
-    width: 32,
-    height: 32,
-    delay: 1000,
-    detailDelay: 1600,
-    cycleInterval: 5200,
+    width: UI_CONFIG.LOADING_SPINNER_SIZE,
+    height: UI_CONFIG.LOADING_SPINNER_SIZE,
+    delay: LOADING_UI_CONFIG.DELAY_MS,
+    detailDelay: LOADING_UI_CONFIG.DETAIL_DELAY_MS,
+    cycleInterval: LOADING_UI_CONFIG.CYCLE_INTERVAL_MS,
   },
   required: "*",
-} as const
+} as const;
 
 // Internal helpers
 const typo = (variant: ImmutableObject<TypographyStyle>) => ({
@@ -40,11 +50,11 @@ const typo = (variant: ImmutableObject<TypographyStyle>) => ({
   fontStyle: variant?.fontStyle,
   lineHeight: variant?.lineHeight,
   color: variant?.color,
-})
+});
 
 const flex = (
   dir: "row" | "column" | "inline",
-  styles: { [key: string]: any } = {}
+  styles: { [key: string]: unknown } = {}
 ) =>
   css({
     display: dir === "inline" ? "inline-flex" : "flex",
@@ -55,15 +65,15 @@ const flex = (
           ? "row wrap"
           : undefined,
     ...styles,
-  })
+  });
 
 // Runtime UI styles factory
 export const createUiStyles = (theme: IMThemeVariables) => {
-  const spacing = theme.sys.spacing
-  const colors = theme.sys.color
-  const typography = theme.sys.typography
-  const gap = spacing?.(2)
-  const auto = "1 1 auto"
+  const spacing = theme.sys.spacing;
+  const colors = theme.sys.color;
+  const typography = theme.sys.typography;
+  const gap = spacing?.(2);
+  const auto = "1 1 auto";
 
   return {
     // Layout
@@ -191,7 +201,14 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       text: (align: BtnContentProps["alignText"]) =>
         css({
           flex: auto,
-          textAlign: (align || "start") as any,
+          textAlign: (align || "start") as
+            | "start"
+            | "end"
+            | "left"
+            | "right"
+            | "center"
+            | "justify"
+            | "match-parent",
           paddingInlineEnd: config.button.textPadding,
         }),
       icon: css({
@@ -276,21 +293,21 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         marginBlockEnd: spacing?.(2) ?? 0,
       }),
     },
-  } as const
-}
+  } as const;
+};
 
-export type UiStyles = ReturnType<typeof createUiStyles>
+export type UiStyles = ReturnType<typeof createUiStyles>;
 
 export const useUiStyles = (): UiStyles => {
-  const theme = useTheme()
-  return createUiStyles(theme)
-}
+  const theme = useTheme();
+  return createUiStyles(theme);
+};
 
 // Settings panel styles factory
 export const createSettingStyles = (theme: IMThemeVariables) => {
-  const spacing = theme?.sys?.spacing
-  const color = theme?.sys?.color
-  const typography = theme?.sys?.typography
+  const spacing = theme?.sys?.spacing;
+  const color = theme?.sys?.color;
+  const typography = theme?.sys?.typography;
 
   return {
     row: css({ width: "100%" }),
@@ -337,12 +354,12 @@ export const createSettingStyles = (theme: IMThemeVariables) => {
         pending: css({ color: color?.info?.main }),
       },
     },
-  } as const
-}
+  } as const;
+};
 
-export type SettingStyles = ReturnType<typeof createSettingStyles>
+export type SettingStyles = ReturnType<typeof createSettingStyles>;
 
 export const useSettingStyles = (): SettingStyles => {
-  const theme = useTheme()
-  return createSettingStyles(theme)
-}
+  const theme = useTheme();
+  return createSettingStyles(theme);
+};

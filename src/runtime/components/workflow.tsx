@@ -1,112 +1,81 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, ReactRedux, jsx } from "jimu-core"
+import { hooks, jsx, React, ReactRedux } from "jimu-core";
 import {
-  Button,
-  StateView,
-  Form,
-  Field,
-  ButtonTabs,
-  Alert,
-  renderSupportHint,
-  UrlInput,
-} from "./ui"
-import { DynamicField } from "./fields"
-import defaultMessages from "../translations/default"
-import {
-  type WorkflowProps,
-  type WorkspaceItem,
-  type WorkspaceParameter,
+  DEFAULT_LOADING_STATE,
+  DRAWING_MODE_TABS,
+  DrawingTool,
+  type DynamicFieldConfig,
+  EMPTY_WORKSPACES,
+  ErrorSeverity,
+  ErrorType,
+  type ExportFormProps,
+  FormFieldType,
   type FormPrimitive,
   type FormValues,
-  type OrderResultProps,
-  type ExportFormProps,
-  type DynamicFieldConfig,
   type LoadingState,
-  type VisibilityState,
-  type ServiceMode,
-  ViewMode,
-  DrawingTool,
-  FormFieldType,
-  ParameterType,
-  makeLoadingView,
   makeEmptyView,
-  ErrorType,
-  type SerializableErrorState,
-  ErrorSeverity,
   makeErrorView,
-  MS_LOADING,
-  WORKSPACE_ITEM_TYPE,
+  makeLoadingView,
+  type OrderResultProps,
+  ParameterType,
+  type SerializableErrorState,
+  TIME_CONSTANTS,
+  type TranslateFn,
   useUiStyles,
-} from "../../config/index"
-import polygonIcon from "../../assets/icons/polygon.svg"
-import rectangleIcon from "../../assets/icons/rectangle.svg"
-import itemIcon from "../../assets/icons/item.svg"
-import { ParameterFormService } from "../../shared/services"
+  ViewMode,
+  type VisibilityState,
+  type WorkflowProps,
+  WORKSPACE_ITEM_TYPE,
+  type WorkspaceItem,
+  type WorkspaceItemQueryResult,
+  type WorkspaceListCacheRecord,
+  type WorkspaceParameter,
+} from "../../config/index";
+import { areLoadingStatesEqual } from "../../extensions/store";
 import {
-  validateDateTimeFormat,
-  getSupportEmail,
-} from "../../shared/validations"
-import {
-  resolveMessageOrKey,
-  buildSupportHintText,
-  stripHtmlToText,
-  stripErrorLabel,
-  initFormValues,
-  canResetButton,
-  shouldShowWorkspaceLoading,
-  toTrimmedString,
-  isNonEmptyTrimmedString,
-  createFmeDispatcher,
-  buildOrderResultView,
-  isAbortError,
-} from "../../shared/utils"
-import {
-  useFormStateManager,
   useDebounce,
-  useWorkspaces,
-  useWorkspaceItem,
+  useFormStateManager,
   useMinLoadingTime,
-} from "../../shared/hooks"
-import { VisibilityEvaluator } from "../../shared/visibility"
-
-// Tillgängliga ritverktyg för AOI-ritning (polygon och rektangel)
-const DRAWING_MODE_TABS = [
-  {
-    value: DrawingTool.POLYGON,
-    label: "optPolygon",
-    icon: polygonIcon,
-    tooltip: "tipDrawPolygon",
-    hideLabel: true,
-  },
-  {
-    value: DrawingTool.RECTANGLE,
-    label: "optRectangle",
-    icon: rectangleIcon,
-    tooltip: "tipDrawRectangle",
-    hideLabel: true,
-  },
-] as const
-
-// Tom konstant för workspace-listor
-const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
-
-// Standardvärden för laddningsstatus
-const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
-  modules: false,
-  submission: false,
-  workspaces: false,
-  parameters: false,
-  geometryValidation: false,
-})
-
-// Jämför två laddningsstatus-objekt för likhet
-const loadingStatesEqual = (a: LoadingState, b: LoadingState): boolean =>
-  a.modules === b.modules &&
-  a.submission === b.submission &&
-  a.workspaces === b.workspaces &&
-  a.parameters === b.parameters &&
-  a.geometryValidation === b.geometryValidation
+  useWorkspaceItem,
+  useWorkspaces,
+} from "../../shared/hooks";
+import { ParameterFormService } from "../../shared/services";
+import {
+  buildOrderResultView,
+  buildSupportHintText,
+  canResetButton,
+  deriveOrderResultStatus,
+  initFormValues,
+  isAbortError,
+  isNonEmptyTrimmedString,
+  resolveMessageOrKey,
+  safeStringifyGeometry,
+  shouldShowWorkspaceLoading,
+  stripErrorLabel,
+  stripHtmlToText,
+  toTrimmedString,
+  toTrimmedStringOrEmpty,
+  useFmeDispatch,
+} from "../../shared/utils";
+import {
+  getSupportEmail,
+  validateDateTimeFormat,
+} from "../../shared/validations";
+import { VisibilityEvaluator } from "../../shared/visibility";
+import defaultMessages from "../translations/default";
+import { DynamicField } from "./fields";
+import {
+  Alert,
+  Button,
+  ButtonTabs,
+  Field,
+  Form,
+  renderSupportHint,
+  StateView,
+  UrlInput,
+} from "./ui";
+import itemIcon from "../../assets/icons/item.svg";
 
 // Kontrollerar om någon laddningsflagg är aktiv
 const isLoadingActive = (state: LoadingState): boolean =>
@@ -116,40 +85,206 @@ const isLoadingActive = (state: LoadingState): boolean =>
       state.workspaces ||
       state.parameters ||
       state.geometryValidation
-  )
-
-// Serialiserar geometri-objekt till JSON-sträng säkert
-const safeStringifyGeometry = (geometry: unknown): string => {
-  if (!geometry) return ""
-  try {
-    return JSON.stringify(geometry)
-  } catch {
-    return ""
-  }
-}
+  );
 
 // Extraherar unika geometrifältnamn från workspace-parametrar
 const extractGeometryFieldNames = (
   workspaceParameters?: readonly WorkspaceParameter[]
 ): string[] => {
-  if (!workspaceParameters?.length) return []
+  if (!workspaceParameters?.length) return [];
 
-  const names: string[] = []
-  const seen = new Set<string>()
+  const names: string[] = [];
+  const seen = new Set<string>();
 
   for (const param of workspaceParameters) {
-    if (!param || param.type !== ParameterType.GEOMETRY) continue
-    if (typeof param.name !== "string") continue
+    if (!param || param.type !== ParameterType.GEOMETRY) continue;
+    if (typeof param.name !== "string") continue;
 
-    const trimmed = param.name.trim()
+    const trimmed = param.name.trim();
     if (trimmed && !seen.has(trimmed)) {
-      seen.add(trimmed)
-      names.push(trimmed)
+      seen.add(trimmed);
+      names.push(trimmed);
     }
   }
 
-  return names
-}
+  return names;
+};
+
+// Filtrerar, scope:ar och sorterar workspace-listor baserat på repository-konfiguration
+const sanitizeWorkspaceList = (
+  items: readonly WorkspaceItem[] | undefined,
+  configuredRepository: string | null
+): readonly WorkspaceItem[] => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return EMPTY_WORKSPACES;
+  }
+
+  const normalizedRepository =
+    toTrimmedString(configuredRepository ?? undefined) ?? "";
+  const filtered: WorkspaceItem[] = [];
+
+  for (const item of items) {
+    if (!item || item.type !== WORKSPACE_ITEM_TYPE) {
+      continue;
+    }
+
+    if (!normalizedRepository) {
+      filtered.push(item);
+      continue;
+    }
+
+    const repoName = toTrimmedString(
+      (item as { repository?: string })?.repository
+    );
+
+    if (!repoName || repoName === normalizedRepository) {
+      filtered.push(item);
+    }
+  }
+
+  if (filtered.length === 0) {
+    return EMPTY_WORKSPACES;
+  }
+
+  if (filtered.length === 1) {
+    return filtered;
+  }
+
+  return filtered.slice().sort((a, b) =>
+    (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+      sensitivity: "base",
+    })
+  );
+};
+
+// Jämför två workspace-listor för att undvika onödiga uppdateringar
+const workspaceListsAreEqual = (
+  nextItems: readonly WorkspaceItem[],
+  currentItems: readonly WorkspaceItem[]
+): boolean => {
+  if (nextItems === currentItems) {
+    return true;
+  }
+
+  if (nextItems.length !== currentItems.length) {
+    return false;
+  }
+
+  for (let index = 0; index < nextItems.length; index += 1) {
+    const next = nextItems[index];
+    const current = currentItems[index];
+
+    if (!next || !current) {
+      return false;
+    }
+
+    if (next.name !== current.name) {
+      return false;
+    }
+
+    if ((next.title || "") !== (current.title || "")) {
+      return false;
+    }
+
+    const nextRepo = toTrimmedString(
+      (next as { repository?: string })?.repository
+    );
+    const currentRepo = toTrimmedString(
+      (current as { repository?: string })?.repository
+    );
+
+    if (nextRepo !== currentRepo) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const safeResolveMessage = (
+  value: unknown,
+  translate: TranslateFn,
+  fallback?: () => string
+): string => {
+  const directMessage =
+    typeof value === "string"
+      ? value
+      : (toTrimmedString(value) ??
+        (value && typeof value === "object" && "message" in value
+          ? toTrimmedString((value as { readonly message?: unknown }).message)
+          : undefined) ??
+        "");
+
+  if (!directMessage) {
+    return fallback ? fallback() : "";
+  }
+
+  try {
+    const resolved = resolveMessageOrKey(directMessage, translate);
+    if (resolved) {
+      return resolved;
+    }
+  } catch {
+    // Intentionally swallow translation errors – fall back below
+  }
+
+  return fallback ? fallback() : directMessage;
+};
+
+const getSanitizedWorkspaces = (
+  cacheRef: React.MutableRefObject<WorkspaceListCacheRecord | null>,
+  rawItems: readonly WorkspaceItem[] | undefined,
+  repository: string | null
+): readonly WorkspaceItem[] => {
+  const cache = cacheRef.current;
+
+  if (cache && cache.repository === repository && cache.raw === rawItems) {
+    return cache.result;
+  }
+
+  const sanitized = sanitizeWorkspaceList(rawItems, repository);
+
+  if (
+    cache &&
+    cache.repository === repository &&
+    workspaceListsAreEqual(sanitized, cache.result)
+  ) {
+    cacheRef.current = {
+      raw: rawItems,
+      repository,
+      result: cache.result,
+    };
+    return cache.result;
+  }
+
+  cacheRef.current = {
+    raw: rawItems,
+    repository,
+    result: sanitized,
+  };
+
+  return sanitized;
+};
+
+const shouldUpdateWorkspaceItems = (
+  canFetch: boolean,
+  nextItems: readonly WorkspaceItem[],
+  currentItems: readonly WorkspaceItem[]
+): boolean => {
+  if (!canFetch) {
+    return false;
+  }
+
+  if (nextItems === EMPTY_WORKSPACES && currentItems.length === 0) {
+    return false;
+  }
+
+  if (nextItems === currentItems) {
+    return false;
+  }
+
+  return !workspaceListsAreEqual(nextItems, currentItems);
+};
 
 /*
  * Skapar formvalidering för workspace-parametrar och schemafält.
@@ -161,44 +296,45 @@ const createFormValidator = (
   getEvaluatedFields?: () => readonly DynamicFieldConfig[] | undefined
 ) => {
   const getFormConfig = () =>
-    parameterService.convertParametersToFields(workspaceParameters)
+    parameterService.convertParametersToFields(workspaceParameters);
 
   const getFieldsForValidation = () => {
-    const evaluated = getEvaluatedFields?.()
+    const evaluated = getEvaluatedFields?.();
     if (evaluated && evaluated.length > 0) {
-      return evaluated
+      return evaluated;
     }
-    return getFormConfig()
-  }
+    return getFormConfig();
+  };
 
   const validateValues = (values: FormValues) => {
     const baseValidation = parameterService.validateFormValues(
       values,
       getFieldsForValidation()
-    )
-    const errors = { ...baseValidation.errors }
+    );
+    const errors = { ...baseValidation.errors };
 
     // Validerar schema-startfältets format när det anges
-    const startRaw = values.start
+    const startRaw = values.start;
     if (isNonEmptyTrimmedString(startRaw)) {
       try {
         if (!validateDateTimeFormat(startRaw.trim())) {
-          errors.start = "invalidDateTimeFormat"
+          errors.start = "invalidDateTimeFormat";
         }
       } catch {
-        errors.start = "invalidDateTimeFormat"
+        errors.start = "invalidDateTimeFormat";
       }
     }
 
     return {
       isValid: Object.keys(errors).length === 0,
       errors,
-    }
-  }
+    };
+  };
 
-  const initializeValues = () => initFormValues(getFormConfig())
-  return { getFormConfig, validateValues, initializeValues }
-}
+  const initializeValues = (): FormValues =>
+    initFormValues(getFormConfig()) as FormValues;
+  return { getFormConfig, validateValues, initializeValues };
+};
 
 // OrderResult: Visar resultatet av ett inlämnat FME-jobb.
 const OrderResult: React.FC<OrderResultProps> = ({
@@ -209,40 +345,34 @@ const OrderResult: React.FC<OrderResultProps> = ({
   onReset,
   config,
 }) => {
-  const styles = useUiStyles()
+  const styles = useUiStyles();
   const [fallbackDownloadUrl, setFallbackDownloadUrl] = React.useState<
     string | null
-  >(null)
+  >(null);
+  const resultStatus = deriveOrderResultStatus(orderResult, config);
+  const { hasResult, isCancelled, isSuccess, serviceMode } = resultStatus;
 
   // Bygger alert-meddelande baserat på orderResult-status
-  let alertNode: React.ReactNode = null
-  if (orderResult) {
-    const isCancelled = Boolean(orderResult.cancelled)
-    const isSuccess = !isCancelled && Boolean(orderResult.success)
-    const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
-    const serviceMode: ServiceMode =
-      orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
-        ? orderResult.serviceMode
-        : fallbackMode
-
+  let alertNode: React.ReactNode = null;
+  if (hasResult && orderResult) {
     if (isCancelled) {
-      const failureCode = (orderResult.code || "").toString().toUpperCase()
-      const isTimeout = failureCode.includes("TIMEOUT")
+      const failureCode = (orderResult.code || "").toString().toUpperCase();
+      const isTimeout = failureCode.includes("TIMEOUT");
       const alertKey = isTimeout
         ? "alertCancelledTimeout"
-        : "alertCancelledUser"
+        : "alertCancelledUser";
       alertNode = (
         <div css={styles.field}>
           <Alert type="warning" withIcon text={translate(alertKey)} />
         </div>
-      )
+      );
     } else if (isSuccess) {
       if (serviceMode === "async") {
         alertNode = (
           <div css={styles.field}>
             <Alert type="info" withIcon text={translate("alertAsyncSuccess")} />
           </div>
-        )
+        );
       } else {
         alertNode = (
           <div css={styles.field}>
@@ -252,25 +382,25 @@ const OrderResult: React.FC<OrderResultProps> = ({
               text={translate("alertSyncSuccess")}
             />
           </div>
-        )
+        );
       }
     } else {
       // Hanterar felstatus
-      const failureCode = (orderResult.code || "").toString().toUpperCase()
-      const rawMessage = orderResult.message || orderResult.statusMessage || ""
+      const failureCode = (orderResult.code || "").toString().toUpperCase();
+      const rawMessage = orderResult.message || orderResult.statusMessage || "";
       const isTransformFailure =
         failureCode === "FME_JOB_FAILURE" ||
-        /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
+        /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage);
       const alertKey = isTransformFailure
         ? "alertJobFailed"
         : serviceMode === "async"
           ? "alertAsyncError"
-          : "alertSyncError"
+          : "alertSyncError";
       alertNode = (
         <div css={styles.field}>
           <Alert type="error" withIcon text={translate(alertKey)} />
         </div>
-      )
+      );
     }
   }
 
@@ -283,71 +413,76 @@ const OrderResult: React.FC<OrderResultProps> = ({
       onBack,
       onReset,
     },
+    undefined,
     fallbackDownloadUrl
-  )
+  );
 
   // Hanterar automatisk nedladdning för sync-resultat (endast en gång per resultat)
   hooks.useEffectOnce(() => {
-    setFallbackDownloadUrl(null)
-    if (!orderResult) return
+    setFallbackDownloadUrl(null);
 
-    const isCancelled = Boolean(orderResult.cancelled)
-    const isSuccess = !isCancelled && Boolean(orderResult.success)
-    const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
-    const serviceMode: ServiceMode =
-      orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
-        ? orderResult.serviceMode
-        : fallbackMode
+    let blobUrl: string | null = null;
+    let downloadTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    if (!isSuccess || serviceMode !== "sync") return
-
-    let blobUrl: string | null = null
-    if (!orderResult.downloadUrl && orderResult.blob) {
-      blobUrl = URL.createObjectURL(orderResult.blob)
-      setFallbackDownloadUrl(blobUrl)
-    }
-    const downloadUrl = orderResult.downloadUrl || blobUrl
-
-    if (!downloadUrl) return
-
-    // Trigga automatisk nedladdning efter kort fördröjning
-    const downloadTimeout = setTimeout(() => {
-      try {
-        const link = document.createElement("a")
-        link.href = downloadUrl
-        link.download = orderResult.downloadFilename || "download"
-        link.style.display = "none"
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-      } catch {
-        // Ignorera fel, fallback-knappen finns tillgänglig
+    const cleanup = () => {
+      if (downloadTimeout !== null) {
+        clearTimeout(downloadTimeout);
       }
-    }, 100) // AUTO_DOWNLOAD_DELAY_MS
-
-    // Cleanup: återkalla blob-URL och rensa timeout
-    return () => {
-      clearTimeout(downloadTimeout)
       if (blobUrl) {
-        // Vänta med att rensa blob URL för att ge nedladdningen tid att starta
+        const urlToRevoke = blobUrl;
         setTimeout(() => {
           try {
-            URL.revokeObjectURL(blobUrl)
+            URL.revokeObjectURL(urlToRevoke);
           } catch {
             // Ignorera revoke-fel
           }
-        }, 60000) // BLOB_URL_CLEANUP_DELAY_MS
+        }, TIME_CONSTANTS.BLOB_URL_CLEANUP_DELAY_MS);
       }
+    };
+
+    if (!orderResult) {
+      return cleanup;
     }
-  })
+
+    if (!isSuccess || serviceMode !== "sync") {
+      return cleanup;
+    }
+
+    if (!orderResult.downloadUrl && orderResult.blob) {
+      blobUrl = URL.createObjectURL(orderResult.blob);
+      setFallbackDownloadUrl(blobUrl);
+    }
+    const downloadUrl = orderResult.downloadUrl || blobUrl;
+
+    if (!downloadUrl) {
+      return cleanup;
+    }
+
+    // Trigga automatisk nedladdning efter kort fördröjning
+    downloadTimeout = setTimeout(() => {
+      try {
+        const link = document.createElement("a");
+        link.href = downloadUrl;
+        link.download = orderResult.downloadFilename || "download";
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch {
+        // Ignorera fel, fallback-knappen finns tillgänglig
+      }
+    }, TIME_CONSTANTS.AUTO_DOWNLOAD_DELAY_MS);
+
+    return cleanup;
+  });
 
   return (
     <>
       {alertNode}
       <StateView state={viewState} />
     </>
-  )
-}
+  );
+};
 
 /*
  * ExportForm: Dynamisk formulärgenerering för workspace-parametrar.
@@ -368,63 +503,56 @@ const ExportForm: React.FC<
   geometryJson,
   jimuMapView,
 }) => {
-  const reduxDispatch = ReactRedux.useDispatch()
-  const fmeDispatchRef = React.useRef(
-    createFmeDispatcher(reduxDispatch, widgetId)
-  )
-  hooks.useUpdateEffect(() => {
-    fmeDispatchRef.current = createFmeDispatcher(reduxDispatch, widgetId)
-  }, [reduxDispatch, widgetId])
-  const fmeDispatch = fmeDispatchRef.current
-  const [parameterService] = React.useState(() => new ParameterFormService())
+  const fmeDispatch = useFmeDispatch(widgetId);
+  const [parameterService] = React.useState(() => new ParameterFormService());
   const [evaluatedFields, setEvaluatedFields] = React.useState<
     readonly DynamicFieldConfig[]
-  >([])
-  const evaluatedFieldsRef = React.useRef<readonly DynamicFieldConfig[]>([])
+  >([]);
+  const evaluatedFieldsRef = React.useRef<readonly DynamicFieldConfig[]>([]);
   const [fileMap, setFileMap] = React.useState<{
-    [key: string]: File | null
-  }>({})
+    [key: string]: File | null;
+  }>({});
 
-  const geometryJsonFromStore = geometryJson ?? null
+  const geometryJsonFromStore = geometryJson ?? null;
 
   const [geometryString, setGeometryString] = React.useState<string>(() =>
     safeStringifyGeometry(geometryJsonFromStore)
-  )
+  );
 
   hooks.useEffectWithPreviousValues(() => {
-    const next = safeStringifyGeometry(geometryJson ?? null)
-    setGeometryString((prev) => (prev === next ? prev : next))
-  }, [geometryJson])
+    const next = safeStringifyGeometry(geometryJson ?? null);
+    setGeometryString((prev) => (prev === next ? prev : next));
+  }, [geometryJson]);
 
   // Extraherar och uppdaterar geometrifältnamn
   const [geometryFieldNames, setGeometryFieldNames] = React.useState<string[]>(
     () => extractGeometryFieldNames(workspaceParameters)
-  )
+  );
 
   hooks.useEffectWithPreviousValues(() => {
-    const next = extractGeometryFieldNames(workspaceParameters)
+    const next = extractGeometryFieldNames(workspaceParameters);
     setGeometryFieldNames((prev) => {
       if (
         prev.length === next.length &&
         prev.every((value, index) => value === next[index])
       ) {
-        return prev
+        return prev;
       }
-      return next
-    })
-  }, [workspaceParameters])
+      return next;
+    });
+  }, [workspaceParameters]);
 
   // Bygger lokalt valideringsmeddelande med aktuell översättning
   const errorMsg = hooks.useEventCallback((count: number): string =>
     count === 1 ? translate("valSingleError") : translate("valMultipleErrors")
-  )
+  );
 
   // Skapar validator med aktuella parametrar - use ref to maintain stable reference
   const validatorRef = React.useRef<ReturnType<
     typeof createFormValidator
-  > | null>(null)
-  const prevParamsSignatureRef = React.useRef<string>("")
-  const paramsSignature = workspaceParameters.map((p) => p.name).join(",")
+  > | null>(null);
+  const prevParamsSignatureRef = React.useRef<string>("");
+  const paramsSignature = workspaceParameters.map((p) => p.name).join(",");
 
   if (
     !validatorRef.current ||
@@ -434,198 +562,198 @@ const ExportForm: React.FC<
       parameterService,
       workspaceParameters,
       () => evaluatedFieldsRef.current
-    )
-    prevParamsSignatureRef.current = paramsSignature
+    );
+    prevParamsSignatureRef.current = paramsSignature;
   }
 
-  const validator = validatorRef.current
+  const validator = validatorRef.current;
 
   // Använder formulär-state-hanterare
-  const formState = useFormStateManager(validator)
+  const formState = useFormStateManager(validator);
 
   // Validerar formulär vid montering och när beroenden ändras
   hooks.useEffectOnce(() => {
-    formState.validateForm()
-  })
+    formState.validateForm();
+  });
 
   // Validerar formulär när värden ändras
   hooks.useUpdateEffect(() => {
-    formState.validateForm()
-  }, [formState.values, formState.validateForm])
+    formState.validateForm();
+  }, [formState.values, formState.validateForm]);
 
   // Återställer värden när workspace eller fält ändras
   hooks.useUpdateEffect(() => {
-    formState.resetForm()
-    setFileMap({})
-    evaluatedFieldsRef.current = []
-    setEvaluatedFields([])
-  }, [workspaceName, workspaceParameters, formState.resetForm])
+    formState.resetForm();
+    setFileMap({});
+    evaluatedFieldsRef.current = [];
+    setEvaluatedFields([]);
+  }, [workspaceName, workspaceParameters, formState.resetForm]);
 
   // Hanterar uppdatering av fält (inklusive filinmatning)
   const setField = hooks.useEventCallback(
     (field: string, value: FormPrimitive | File | null) => {
       if (value instanceof File) {
         // Handle file input specifically
-        setFileMap((prev) => ({ ...prev, [field]: value }))
-        formState.updateField(field, value.name)
-        return
+        setFileMap((prev) => ({ ...prev, [field]: value }));
+        formState.updateField(field, value.name);
+        return;
       } else if (value === null && field in fileMap) {
         // Handle file removal
-        setFileMap((prev) => ({ ...prev, [field]: null }))
-        formState.updateField(field, "")
-        return
+        setFileMap((prev) => ({ ...prev, [field]: null }));
+        formState.updateField(field, "");
+        return;
       }
 
       // Handle all other form values
-      formState.updateField(field, value)
+      formState.updateField(field, value);
     }
-  )
+  );
 
-  const formValues = formState.values
-  const setFormValues = formState.setValues
-  const formValuesRef = hooks.useLatest(formValues)
+  const formValues = formState.values;
+  const setFormValues = formState.setValues;
+  const formValuesRef = hooks.useLatest(formValues);
   const recomputeVisibility = hooks.useEventCallback(() => {
-    if (!validator) return
+    if (!validator) return;
 
-    const baseFields = validator.getFormConfig()
-    const previousStates = new Map<string, VisibilityState | undefined>()
+    const baseFields = validator.getFormConfig();
+    const previousStates = new Map<string, VisibilityState | undefined>();
     for (const field of evaluatedFieldsRef.current) {
-      previousStates.set(field.name, field.visibilityState)
+      previousStates.set(field.name, field.visibilityState);
     }
 
     const evaluator = new VisibilityEvaluator(
       formValuesRef.current || {},
       baseFields,
       previousStates
-    )
+    );
 
     const nextFields = baseFields.map((field) => {
-      const nextState = evaluator.evaluate(field.visibility, field.name)
+      const nextState = evaluator.evaluate(field.visibility, field.name);
       return {
         ...field,
         visibilityState: nextState,
-      }
-    })
+      };
+    });
 
-    evaluatedFieldsRef.current = nextFields
-    setEvaluatedFields(nextFields)
+    evaluatedFieldsRef.current = nextFields;
+    setEvaluatedFields(nextFields);
 
-    const hiddenDisabledNames: string[] = []
-    const nonVisibleNames: string[] = []
+    const hiddenDisabledNames: string[] = [];
+    const nonVisibleNames: string[] = [];
 
     for (const field of nextFields) {
       if (field.visibilityState === "hiddenDisabled") {
-        hiddenDisabledNames.push(field.name)
+        hiddenDisabledNames.push(field.name);
       }
       if (
         field.visibilityState !== undefined &&
         field.visibilityState !== "visibleEnabled"
       ) {
-        nonVisibleNames.push(field.name)
+        nonVisibleNames.push(field.name);
       }
     }
 
-    let valuesCleared = false
+    let valuesCleared = false;
 
     if (hiddenDisabledNames.length) {
-      const currentValues = formValuesRef.current || {}
-      let nextValues: FormValues | undefined
+      const currentValues = formValuesRef.current || {};
+      let nextValues: FormValues | undefined;
 
       hiddenDisabledNames.forEach((name) => {
         if (Object.prototype.hasOwnProperty.call(currentValues, name)) {
           if (!nextValues) {
-            nextValues = { ...currentValues }
+            nextValues = { ...currentValues };
           }
-          delete (nextValues as { [key: string]: unknown })[name]
+          delete (nextValues as { [key: string]: unknown })[name];
         }
-      })
+      });
 
       if (nextValues) {
-        valuesCleared = true
-        setFormValues(nextValues)
+        valuesCleared = true;
+        setFormValues(nextValues);
       }
 
       setFileMap((prev) => {
-        let next: typeof prev | null = null
+        let next: typeof prev | null = null;
         hiddenDisabledNames.forEach((name) => {
           if (
             Object.prototype.hasOwnProperty.call(prev, name) &&
             prev[name] !== null
           ) {
             if (!next) {
-              next = { ...prev }
+              next = { ...prev };
             }
-            next[name] = null
+            next[name] = null;
           }
-        })
-        return next ?? prev
-      })
+        });
+        return next ?? prev;
+      });
     }
 
     if (nonVisibleNames.length) {
-      const currentErrors = formState.errors
-      let nextErrors: { [key: string]: string } | null = null
+      const currentErrors = formState.errors;
+      let nextErrors: { [key: string]: string } | null = null;
 
       nonVisibleNames.forEach((name) => {
         if (Object.prototype.hasOwnProperty.call(currentErrors, name)) {
           if (!nextErrors) {
-            nextErrors = { ...currentErrors }
+            nextErrors = { ...currentErrors };
           }
-          delete nextErrors[name]
+          delete nextErrors[name];
         }
-      })
+      });
 
       if (nextErrors) {
-        formState.setErrors(nextErrors)
-        formState.setIsValid(Object.keys(nextErrors).length === 0)
+        formState.setErrors(nextErrors);
+        formState.setIsValid(Object.keys(nextErrors).length === 0);
       }
     }
 
     if (!valuesCleared) {
-      formState.validateForm()
+      formState.validateForm();
     }
-  })
+  });
 
   hooks.useEffectOnce(() => {
-    recomputeVisibility()
-  })
+    recomputeVisibility();
+  });
 
   hooks.useUpdateEffect(() => {
-    recomputeVisibility()
-  }, [formValues, recomputeVisibility])
+    recomputeVisibility();
+  }, [formValues, recomputeVisibility]);
 
   hooks.useUpdateEffect(() => {
-    recomputeVisibility()
-  }, [validator, recomputeVisibility])
+    recomputeVisibility();
+  }, [validator, recomputeVisibility]);
 
   // Synkroniserar geometrivärden med geometrifält i formuläret
   hooks.useEffectWithPreviousValues(() => {
-    if (!geometryFieldNames.length) return
-    const nextValue = geometryString || ""
-    const currentValues = formValuesRef.current
-    if (!currentValues) return
+    if (!geometryFieldNames.length) return;
+    const nextValue = geometryString || "";
+    const currentValues = formValuesRef.current;
+    if (!currentValues) return;
 
     const shouldUpdate = geometryFieldNames.some((name) => {
-      const current = currentValues?.[name]
-      const currentStr = typeof current === "string" ? current : ""
-      return currentStr !== nextValue
-    })
+      const current = currentValues?.[name];
+      const currentStr = toTrimmedStringOrEmpty(current);
+      return currentStr !== nextValue;
+    });
 
-    if (!shouldUpdate) return
+    if (!shouldUpdate) return;
 
-    const updated = { ...currentValues }
+    const updated = { ...currentValues };
     geometryFieldNames.forEach((name) => {
-      updated[name] = nextValue
-    })
-    setFormValues(updated)
-  }, [geometryFieldNames, geometryString, formValuesRef, setFormValues])
+      updated[name] = nextValue;
+    });
+    setFormValues(updated);
+  }, [geometryFieldNames, geometryString, formValuesRef, setFormValues]);
 
   // Hanterar formulärinlämning med validering
   const handleSubmit = hooks.useEventCallback(() => {
-    const validation = formState.validateForm()
+    const validation = formState.validateForm();
     if (!validation.isValid) {
-      const count = Object.keys(validation.errors).length
-      const errorMessage = errorMsg(count)
+      const count = Object.keys(validation.errors).length;
+      const errorMessage = errorMsg(count);
       const error: SerializableErrorState = {
         message: errorMessage,
         type: ErrorType.VALIDATION,
@@ -636,30 +764,30 @@ const ExportForm: React.FC<
         kind: "serializable",
         userFriendlyMessage: "",
         suggestion: "",
-      }
+      };
       // Dispatch error to the store
-      fmeDispatch.setError("general", error)
-      return
+      fmeDispatch.setError("general", error);
+      return;
     }
     // Merge file inputs with other values
-    const merged: { [key: string]: unknown } = { ...formState.values }
+    const merged: { [key: string]: unknown } = { ...formState.values };
     Object.keys(fileMap).forEach((k) => {
-      const f = fileMap[k]
-      if (f) merged[k] = f
-    })
-    onSubmit({ type: workspaceName, data: merged })
-  })
+      const f = fileMap[k];
+      if (f) merged[k] = f;
+    });
+    onSubmit({ type: workspaceName, data: merged });
+  });
 
   // Tar bort HTML-taggar från text säkert
   const stripHtml = hooks.useEventCallback((html: string): string =>
     stripHtmlToText(html)
-  )
+  );
 
   // Löser upp felmeddelanden (med översättning)
   const resolveError = hooks.useEventCallback((err?: string) => {
-    const keyOrMsg = stripErrorLabel(err)
-    return keyOrMsg ? resolveMessageOrKey(keyOrMsg, translate) : undefined
-  })
+    const keyOrMsg = stripErrorLabel(err);
+    return keyOrMsg ? resolveMessageOrKey(keyOrMsg, translate) : undefined;
+  });
 
   return (
     <Form
@@ -713,20 +841,22 @@ const ExportForm: React.FC<
       )}
 
       {/* Workspace parameters */}
-      {evaluatedFields
-        .filter((field) => {
-          const state = field.visibilityState ?? "visibleEnabled"
-          return state === "visibleEnabled" || state === "visibleDisabled"
-        })
+      {(evaluatedFields.length > 0
+        ? evaluatedFields.filter((field) => {
+            const state = field.visibilityState ?? "visibleEnabled";
+            return state === "visibleEnabled" || state === "visibleDisabled";
+          })
+        : validator.getFormConfig()
+      )
         .map((field) => {
           if (!field || !field.name || !field.type) {
-            return null
+            return null;
           }
 
           const isInlineField =
             field.type === FormFieldType.SWITCH ||
-            field.type === FormFieldType.CHECKBOX
-          const disabled = field.visibilityState === "visibleDisabled"
+            field.type === FormFieldType.CHECKBOX;
+          const disabled = field.visibilityState === "visibleDisabled";
 
           if (field.type === FormFieldType.MESSAGE) {
             return (
@@ -739,7 +869,7 @@ const ExportForm: React.FC<
                 disabled={disabled}
                 jimuMapView={jimuMapView}
               />
-            )
+            );
           }
 
           return (
@@ -760,157 +890,152 @@ const ExportForm: React.FC<
                 jimuMapView={jimuMapView}
               />
             </Field>
-          )
+          );
         })
         .filter(Boolean)}
     </Form>
-  )
-}
+  );
+};
 
 /*
  * Workflow: Huvudkomponent som orkestera widget-vyer och användarflöden.
  * Hanterar ritning, workspace-val, formulär och jobbinlämning.
  */
-export const Workflow: React.FC<WorkflowProps> = ({
-  widgetId,
-  state,
-  instructionText,
-  loadingState: loadingStateProp,
-  canStartDrawing,
-  error,
-  onFormBack,
-  onFormSubmit,
-  orderResult,
-  onReuseGeography,
-  onBack,
-  drawnArea,
-  areaWarning,
-  formatArea,
-  // Header actions
-  showHeaderActions,
-  // Drawing mode
-  drawingMode = DrawingTool.POLYGON,
-  onDrawingModeChange,
-  // Drawing progress
-  isDrawing,
-  clickCount,
-  isCompleting,
-  isValidatingGeometry = false,
-  // Reset
-  onReset,
-  canReset: canResetProp = true,
-  // Workspace props
-  config,
-  onWorkspaceSelected,
-  selectedWorkspace,
-  workspaceItems: workspaceItemsProp,
-  workspaceParameters,
-  workspaceItem,
-  isPrefetchingWorkspaces = false,
-  workspacePrefetchProgress,
-  workspacePrefetchStatus,
-  geometryJson,
-  jimuMapView,
-  // Workspace collection now arrives from the parent widget via props
-  // Startup validation props
-  isStartupValidating: _isStartupValidating,
-  startupValidationStep,
-  startupValidationError,
-  onRetryValidation,
-  submissionPhase = "idle",
-  modeNotice,
-}) => {
-  const translate = hooks.useTranslation(defaultMessages)
-  const styles = useUiStyles()
-  const reduxDispatch = ReactRedux.useDispatch()
+export const Workflow: React.FC<WorkflowProps> = (props) => {
+  const {
+    widgetId,
+    state,
+    instructionText,
+    loadingState: loadingStateProp,
+    canStartDrawing,
+    error,
+    onFormBack,
+    onFormSubmit,
+    orderResult,
+    onReuseGeography,
+    onBack,
+    drawnArea,
+    // Header actions
+    showHeaderActions,
+    // Drawing mode
+    drawingMode = DrawingTool.POLYGON,
+    onDrawingModeChange,
+    // Drawing progress
+    isDrawing,
+    clickCount,
+    isValidatingGeometry = false,
+    // Reset
+    onReset,
+    canReset: canResetProp = true,
+    // Workspace props
+    config,
+    onWorkspaceSelected,
+    selectedWorkspace,
+    workspaceItems: workspaceItemsProp,
+    workspaceParameters,
+    workspaceItem,
+    isPrefetchingWorkspaces = false,
+    geometryJson,
+    jimuMapView,
+    // Workspace collection now arrives from the parent widget via props
+    // Startup validation props
+    startupValidationStep,
+    startupValidationError,
+    onRetryValidation,
+    submissionPhase = "idle",
+    modeNotice,
+  } = props;
+  const translate = hooks.useTranslation(defaultMessages);
+  const styles = useUiStyles();
   // Säkerställer icke-tomt widgetId för Redux-interaktioner
-  const effectiveWidgetIdRef = React.useRef<string>()
+  const effectiveWidgetIdRef = React.useRef<string>();
   if (!effectiveWidgetIdRef.current) {
     effectiveWidgetIdRef.current =
       widgetId && widgetId.trim()
         ? widgetId
-        : `__local_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
+        : `__local_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   }
-  const effectiveWidgetId = effectiveWidgetIdRef.current
-  const fmeDispatchRef = React.useRef(
-    createFmeDispatcher(reduxDispatch, effectiveWidgetId)
-  )
-  hooks.useUpdateEffect(() => {
-    fmeDispatchRef.current = createFmeDispatcher(
-      reduxDispatch,
-      effectiveWidgetId
-    )
-  }, [reduxDispatch, effectiveWidgetId])
+  const effectiveWidgetId = effectiveWidgetIdRef.current;
+  const fmeDispatch = useFmeDispatch(effectiveWidgetId);
+  const reduxDispatch = ReactRedux.useDispatch();
 
-  const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE
+  const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE;
   // Latchar laddningsstatus med fördröjning för smidigare UI
   const [latchedLoadingState, setLatchedLoadingState] =
-    React.useState<LoadingState>(incomingLoadingState)
-  const latchedLoadingRef = hooks.useLatest(latchedLoadingState)
+    React.useState<LoadingState>(incomingLoadingState);
+  const latchedLoadingRef = hooks.useLatest(latchedLoadingState);
   const releaseLoadingState = useDebounce((next: LoadingState) => {
-    setLatchedLoadingState(next)
-  }, MS_LOADING)
+    setLatchedLoadingState(next);
+  }, TIME_CONSTANTS.MIN_LOADING_DELAY_MS);
 
   hooks.useEffectWithPreviousValues(() => {
-    const current = latchedLoadingRef.current
-    const incoming = incomingLoadingState
-    if (isLoadingActive(incoming)) {
-      releaseLoadingState.cancel()
-      if (!loadingStatesEqual(current, incoming)) {
-        setLatchedLoadingState(incoming)
+    const current = latchedLoadingRef.current;
+    const incoming = incomingLoadingState;
+    if (areLoadingStatesEqual(current, incoming)) {
+      if (!isLoadingActive(incoming)) {
+        releaseLoadingState.cancel();
       }
-      return
+      return;
     }
+
+    if (isLoadingActive(incoming)) {
+      releaseLoadingState.cancel();
+      setLatchedLoadingState(incoming);
+      return;
+    }
+
     if (isLoadingActive(current)) {
-      releaseLoadingState(incoming)
-      return
+      releaseLoadingState(incoming);
+      return;
     }
-    if (!loadingStatesEqual(current, incoming)) {
-      setLatchedLoadingState(incoming)
-    }
+
+    setLatchedLoadingState(incoming);
   }, [
     incomingLoadingState.modules,
     incomingLoadingState.parameters,
     incomingLoadingState.workspaces,
     incomingLoadingState.submission,
+    incomingLoadingState.geometryValidation,
     releaseLoadingState,
-  ])
+  ]);
 
-  const loadingState = latchedLoadingState
-  const isModulesLoading = Boolean(loadingState.modules)
-  const isSubmittingOrder = Boolean(loadingState.submission)
+  const loadingState = latchedLoadingState;
+  const isModulesLoading = Boolean(loadingState.modules);
+  const isSubmittingOrder = Boolean(loadingState.submission);
   // Endast workspace-lista-laddning, inte individuella parametrar
-  const isWorkspaceLoading = Boolean(loadingState.workspaces)
-  const canDraw = canStartDrawing ?? true
+  const isWorkspaceLoading = Boolean(loadingState.workspaces);
+  const canDraw = canStartDrawing ?? true;
 
   // Hämtar ritverk tygsläges-items med översättning - use ref for stable reference
-  const drawingModeItemsRef = React.useRef<any[]>([])
+  const drawingModeItemsRef = React.useRef<
+    Array<{ value: string; label: string; tooltip: string }>
+  >([]);
 
   const getDrawingModeItems = hooks.useEventCallback(() => {
     return DRAWING_MODE_TABS.map((tab) => ({
       ...tab,
       label: translate(tab.label),
       tooltip: translate(tab.tooltip),
-    }))
-  })
+    }));
+  });
 
   // Update ref on translate changes
   hooks.useUpdateEffect(() => {
-    drawingModeItemsRef.current = getDrawingModeItems()
-  }, [getDrawingModeItems])
+    drawingModeItemsRef.current = getDrawingModeItems();
+  }, [getDrawingModeItems]);
 
   // Initialize on mount
   if (drawingModeItemsRef.current.length === 0) {
-    drawingModeItemsRef.current = getDrawingModeItems()
+    drawingModeItemsRef.current = getDrawingModeItems();
   }
 
-  const drawingModeItems = drawingModeItemsRef.current
+  const drawingModeItems = drawingModeItemsRef.current;
 
   // Renderar ritverktygsläges-flikar
   const renderDrawingModeTabs = hooks.useEventCallback(() => {
     const helperText = isNonEmptyTrimmedString(instructionText)
       ? instructionText
-      : translate("tipDrawMode")
+      : translate("tipDrawMode");
 
     return (
       <div css={styles.form.layout}>
@@ -928,34 +1053,34 @@ export const Workflow: React.FC<WorkflowProps> = ({
               items={drawingModeItems}
               value={drawingMode}
               onChange={(val) => {
-                onDrawingModeChange?.(val as DrawingTool)
+                onDrawingModeChange?.(val as DrawingTool);
               }}
               aria-label={translate("tipDrawMode")}
             />
           </div>
         </div>
       </div>
-    )
-  })
+    );
+  });
 
   // Renderar lägesmeddelande (info eller varning)
   const renderModeNotice = (): React.ReactNode => {
-    if (!modeNotice) return null
+    if (!modeNotice) return null;
 
-    const { messageKey, params, severity } = modeNotice
-    if (!messageKey) return null
+    const { messageKey, params, severity } = modeNotice;
+    if (!messageKey) return null;
 
-    let message = ""
+    let message = "";
     try {
-      message = translate(messageKey, params || {})
+      message = translate(messageKey, params || {});
     } catch {
-      message = translate(messageKey)
+      message = translate(messageKey);
     }
 
-    if (!message) return null
+    if (!message) return null;
 
     const alertType: "info" | "warning" =
-      severity === "info" ? "info" : "warning"
+      severity === "info" ? "info" : "warning";
 
     return (
       <Alert
@@ -964,8 +1089,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
         variant="default"
         withIcon={true}
       />
-    )
-  }
+    );
+  };
 
   // Renderar StateView-komponenter konsekvent
   const renderLoading = hooks.useEventCallback(
@@ -974,20 +1099,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
       subMessage?: string,
       extras?: readonly React.ReactNode[]
     ) => {
-      const additionalMessages: React.ReactNode[] = []
+      const additionalMessages: React.ReactNode[] = [];
 
       if (Array.isArray(extras)) {
         for (const entry of extras) {
           if (entry !== null && entry !== undefined) {
-            additionalMessages.push(entry)
+            additionalMessages.push(entry);
           }
         }
       }
 
-      const waitText = translate("msgPleaseWait")
+      const waitText = translate("msgPleaseWait");
       const hasWaitAlready = additionalMessages.some(
         (entry) => typeof entry === "string" && entry === waitText
-      )
+      );
 
       if (
         waitText &&
@@ -995,7 +1120,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         waitText !== subMessage &&
         !hasWaitAlready
       ) {
-        additionalMessages.push(waitText)
+        additionalMessages.push(waitText);
       }
 
       return (
@@ -1006,9 +1131,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
             additionalMessages.length ? additionalMessages : undefined
           )}
         />
-      )
+      );
     }
-  )
+  );
 
   // Renderar felmeddelanden med återförsöks-/bakåt-knappar
   const renderError = hooks.useEventCallback(
@@ -1019,26 +1144,25 @@ export const Workflow: React.FC<WorkflowProps> = ({
       code?: string,
       supportText?: string
     ) => {
-      const actions: Array<{ label: string; onClick: () => void }> = []
+      const actions: Array<{ label: string; onClick: () => void }> = [];
       if (onRetry) {
-        actions.push({ label: translate("btnRetry"), onClick: onRetry })
+        actions.push({ label: translate("btnRetry"), onClick: onRetry });
       } else if (onBack) {
-        actions.push({ label: translate("btnBack"), onClick: onBack })
+        actions.push({ label: translate("btnBack"), onClick: onBack });
       }
       // Bygger supporthjälp och länk om e-post konfigurerad
-      const rawEmail = getSupportEmail(config?.supportEmail)
-      const hintText = buildSupportHintText(translate, rawEmail, supportText)
+      const rawEmail = getSupportEmail(config?.supportEmail);
+      const hintText = buildSupportHintText(translate, rawEmail, supportText);
 
-      let localizedMessage = message
-      try {
-        localizedMessage = resolveMessageOrKey(String(message), translate)
-      } catch {
-        /* swallow translation errors and keep raw message */
-      }
+      const localizedMessage = safeResolveMessage(
+        message,
+        translate,
+        () => message
+      );
 
       const supportDetail = !hintText
         ? undefined
-        : renderSupportHint(rawEmail, translate, styles, hintText)
+        : renderSupportHint(rawEmail, translate, styles, hintText);
 
       return (
         <StateView
@@ -1048,29 +1172,29 @@ export const Workflow: React.FC<WorkflowProps> = ({
             detail: supportDetail,
           })}
         />
-      )
+      );
     }
-  )
+  );
 
   // Hämtar konfigurerade servervärden
-  const configuredRepository = toTrimmedString(config?.repository) ?? ""
+  const configuredRepository = toTrimmedString(config?.repository) ?? "";
   const previousConfiguredRepository =
-    hooks.usePrevious(configuredRepository) ?? ""
+    hooks.usePrevious(configuredRepository) ?? "";
   const serverUrl = toTrimmedString(
     (config as { fmeServerUrl?: string })?.fmeServerUrl
-  )
+  );
   const serverToken = toTrimmedString(
     (config as { fmeServerToken?: string })?.fmeServerToken
-  )
+  );
   const canFetchWorkspaces = Boolean(
     serverUrl && serverToken && configuredRepository
-  )
+  );
 
   // Håller pending workspace-val medan metadata hämtas
   const [pendingWorkspace, setPendingWorkspace] = React.useState<{
-    name: string
-    repository?: string
-  } | null>(null)
+    name: string;
+    repository?: string;
+  } | null>(null);
 
   // React Query för workspace-listor
   const workspacesQuery = useWorkspaces(
@@ -1080,7 +1204,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       fmeServerToken: serverToken || undefined,
     },
     { enabled: canFetchWorkspaces }
-  )
+  );
 
   // React Query för specifik workspace-metadata
   const workspaceItemQuery = useWorkspaceItem(
@@ -1092,173 +1216,121 @@ export const Workflow: React.FC<WorkflowProps> = ({
       fmeServerToken: serverToken || undefined,
     },
     { enabled: Boolean(pendingWorkspace && canFetchWorkspaces) }
-  )
+  );
 
-  const workspacesRefetchRef = hooks.useLatest(workspacesQuery.refetch)
+  const workspacesRefetchRef = hooks.useLatest(workspacesQuery.refetch);
+  const sanitizedWorkspacesCacheRef =
+    React.useRef<WorkspaceListCacheRecord | null>(null);
 
   const workspaceItems = Array.isArray(workspaceItemsProp)
     ? workspaceItemsProp
-    : EMPTY_WORKSPACES
-  const currentRepository = configuredRepository || null
+    : EMPTY_WORKSPACES;
+  const currentRepository = configuredRepository || null;
 
   // Filtrerar och sorterar workspace-listor från API
   const rawWorkspaceItems = Array.isArray(workspacesQuery.data)
     ? (workspacesQuery.data as readonly WorkspaceItem[])
-    : EMPTY_WORKSPACES
+    : EMPTY_WORKSPACES;
 
-  const filteredWorkspaces = rawWorkspaceItems.filter(
-    (item) => item?.type === WORKSPACE_ITEM_TYPE
-  )
-
-  const scopedWorkspaces = filteredWorkspaces.filter((item) => {
-    const repoName = toTrimmedString(
-      (item as { repository?: string })?.repository
-    )
-    if (!repoName || !configuredRepository) {
-      return true
-    }
-    return repoName === configuredRepository
-  })
-
-  const sanitizedWorkspaces =
-    scopedWorkspaces.length === 0
-      ? EMPTY_WORKSPACES
-      : scopedWorkspaces.slice().sort((a, b) =>
-          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-            sensitivity: "base",
-          })
-        )
-
-  // Jämför workspace-listor för uppdateringsdetektering
-  const workspaceListsEqual = (
-    nextItems: readonly WorkspaceItem[],
-    currentItems: readonly WorkspaceItem[]
-  ): boolean => {
-    if (nextItems.length !== currentItems.length) {
-      return false
-    }
-    for (let index = 0; index < nextItems.length; index += 1) {
-      const next = nextItems[index]
-      const current = currentItems[index]
-      if (!next || !current) {
-        return false
-      }
-      if (next.name !== current.name) {
-        return false
-      }
-      if ((next.title || "") !== (current.title || "")) {
-        return false
-      }
-      const nextRepo = toTrimmedString(
-        (next as { repository?: string })?.repository
-      )
-      const currentRepo = toTrimmedString(
-        (current as { repository?: string })?.repository
-      )
-      if (nextRepo !== currentRepo) {
-        return false
-      }
-    }
-    return true
-  }
+  const sanitizedWorkspaces = getSanitizedWorkspaces(
+    sanitizedWorkspacesCacheRef,
+    rawWorkspaceItems,
+    currentRepository
+  );
 
   // Synkroniserar workspace-listor till Redux
   hooks.useEffectWithPreviousValues(() => {
-    if (!canFetchWorkspaces) {
-      return
+    if (
+      shouldUpdateWorkspaceItems(
+        canFetchWorkspaces,
+        sanitizedWorkspaces,
+        workspaceItems
+      )
+    ) {
+      fmeDispatch.setWorkspaceItems(sanitizedWorkspaces, config?.repository);
     }
+  }, [
+    sanitizedWorkspaces,
+    workspaceItems,
+    canFetchWorkspaces,
+    config?.repository,
+  ]);
 
-    const nextItems = sanitizedWorkspaces
-    if (nextItems === EMPTY_WORKSPACES && workspaceItems.length === 0) {
-      return
-    }
-
-    // Early return if lists are referentially equal
-    if (nextItems === workspaceItems) {
-      return
-    }
-
-    if (workspaceListsEqual(nextItems, workspaceItems)) {
-      return
-    }
-
-    fmeDispatchRef.current.setWorkspaceItems(nextItems)
-  }, [sanitizedWorkspaces, workspaceItems, canFetchWorkspaces])
-
-  // Rensar workspace-state när hämtning ej längre möjlig
+  // Rensar workspace-state och pending workspace när hämtning ej längre möjlig
   hooks.useUpdateEffect(() => {
     if (canFetchWorkspaces) {
-      return
+      return;
     }
-    if (!workspaceItems.length) {
-      return
+
+    if (workspaceItems.length) {
+      fmeDispatch.clearWorkspaceState(config?.repository);
     }
-    fmeDispatchRef.current.clearWorkspaceState()
-  }, [canFetchWorkspaces, workspaceItems.length])
+
+    if (pendingWorkspace) {
+      setPendingWorkspace(null);
+    }
+  }, [
+    canFetchWorkspaces,
+    workspaceItems.length,
+    pendingWorkspace,
+    config?.repository,
+  ]);
 
   // Hämtar om workspaces vid repository-byte
   hooks.useUpdateEffect(() => {
     if (previousConfiguredRepository === configuredRepository) {
-      return
+      return;
     }
 
-    setPendingWorkspace(null)
-    fmeDispatchRef.current.clearWorkspaceState()
+    setPendingWorkspace(null);
+    fmeDispatch.clearWorkspaceState(configuredRepository);
 
     if (!configuredRepository || !canFetchWorkspaces) {
-      return
+      return;
     }
 
-    const refetch = workspacesRefetchRef.current
+    const refetch = workspacesRefetchRef.current;
     if (typeof refetch === "function") {
-      void refetch()
+      void refetch();
     }
-  }, [configuredRepository, previousConfiguredRepository, canFetchWorkspaces])
+  }, [configuredRepository, previousConfiguredRepository, canFetchWorkspaces]);
 
   // Rensar pending workspace om hämtning ej längre möjlig
-  hooks.useUpdateEffect(() => {
-    if (canFetchWorkspaces) {
-      return
-    }
-    if (!pendingWorkspace) {
-      return
-    }
-    setPendingWorkspace(null)
-  }, [canFetchWorkspaces, pendingWorkspace])
-
   // Processar workspace-val när metadata hämtats
   hooks.useUpdateEffect(() => {
     if (!pendingWorkspace) {
-      return
+      return;
     }
 
-    const payload = workspaceItemQuery.data
+    const payload = workspaceItemQuery.data as
+      | WorkspaceItemQueryResult
+      | undefined;
     if (!payload) {
-      return
+      return;
     }
 
-    const workspaceName = pendingWorkspace.name
+    const workspaceName = pendingWorkspace.name;
     if (!workspaceName) {
-      return
+      return;
     }
 
     if (onWorkspaceSelected) {
-      onWorkspaceSelected(workspaceName, payload.parameters, payload.item)
+      onWorkspaceSelected(workspaceName, payload.parameters, payload.item);
     } else {
-      fmeDispatchRef.current.applyWorkspaceData({
+      fmeDispatch.applyWorkspaceData({
         workspaceName,
         parameters: payload.parameters,
         item: payload.item,
-      })
+      });
     }
 
-    setPendingWorkspace(null)
-  }, [pendingWorkspace, workspaceItemQuery.data, onWorkspaceSelected])
+    setPendingWorkspace(null);
+  }, [pendingWorkspace, workspaceItemQuery.data, onWorkspaceSelected]);
 
   // Synkroniserar workspace-hämtningsstatus till Redux
-  const hasWorkspaceItems = workspaceItems.length > 0
+  const hasWorkspaceItems = workspaceItems.length > 0;
   // Detekterar om det finns cachade workspaces i Redux
-  const hasCachedWorkspaces = sanitizedWorkspaces.length > 0
+  const hasCachedWorkspaces = sanitizedWorkspaces.length > 0;
   const workspaceLoadingActive = canFetchWorkspaces
     ? Boolean(
         workspacesQuery.isLoading ||
@@ -1266,88 +1338,84 @@ export const Workflow: React.FC<WorkflowProps> = ({
             !hasCachedWorkspaces &&
             workspacesQuery.isFetching)
       )
-    : false
+    : false;
 
   // Synkroniserar parameter-hämtningsstatus till Redux
-  const parametersFetching = Boolean(workspaceItemQuery.isLoading)
+  const parametersFetching = Boolean(workspaceItemQuery.isLoading);
 
   // Hook för att sätta loading flags med minimum display time
-  const setLoadingFlag = useMinLoadingTime(reduxDispatch, widgetId)
+  const setLoadingFlag = useMinLoadingTime(reduxDispatch, widgetId);
 
   hooks.useUpdateEffect(() => {
-    setLoadingFlag("workspaces", workspaceLoadingActive)
-  }, [workspaceLoadingActive, setLoadingFlag])
+    setLoadingFlag("workspaces", workspaceLoadingActive);
+  }, [workspaceLoadingActive, setLoadingFlag]);
 
   hooks.useUpdateEffect(() => {
-    setLoadingFlag("parameters", parametersFetching)
-  }, [parametersFetching, setLoadingFlag])
+    setLoadingFlag("parameters", parametersFetching);
+  }, [parametersFetching, setLoadingFlag]);
 
   // Översätter workspace-fel (ignorerar abort-fel)
   const translateWorkspaceError = hooks.useEventCallback(
     (errorValue: unknown, messageKey: string): string | null => {
-      if (!errorValue) {
-        return null
+      if (!errorValue || isAbortError(errorValue)) {
+        return null;
       }
-      if (isAbortError(errorValue)) {
-        return null
-      }
-      try {
-        return resolveMessageOrKey(messageKey, translate)
-      } catch {
-        return translate(messageKey)
-      }
+
+      return safeResolveMessage(messageKey, translate, () =>
+        translate(messageKey)
+      );
     }
-  )
+  );
 
   const workspaceListError =
     workspacesQuery.isError && canFetchWorkspaces
       ? translateWorkspaceError(workspacesQuery.error, "failedToLoadWorkspaces")
-      : null
+      : null;
 
   const workspaceDetailError = workspaceItemQuery.isError
     ? translateWorkspaceError(
         workspaceItemQuery.error,
         "failedToLoadWorkspaceDetails"
       )
-    : null
+    : null;
 
-  const workspaceError = workspaceDetailError || workspaceListError
+  const workspaceError = workspaceDetailError || workspaceListError;
 
   // Laddar workspace-listan på nytt
   const loadWsList = hooks.useEventCallback(() => {
-    setPendingWorkspace(null)
+    setPendingWorkspace(null);
 
     if (!canFetchWorkspaces) {
-      fmeDispatchRef.current.clearWorkspaceState()
-      return
+      fmeDispatch.clearWorkspaceState(config?.repository);
+      return;
     }
 
-    const refetch = workspacesRefetchRef.current
+    const refetch = workspacesRefetchRef.current;
     if (typeof refetch === "function") {
-      void refetch()
+      void refetch();
     }
-  })
+  });
 
   // Renderar workspace-knappar från lista
   const renderWorkspaceButtons = hooks.useEventCallback(() =>
     workspaceItems.map((workspace: WorkspaceItem, index: number) => {
-      const displayLabel = workspace.title || workspace.name
+      const displayLabel = workspace.title || workspace.name;
       const handleOpen = () => {
         const repoToUse =
           toTrimmedString((workspace as { repository?: string })?.repository) ??
           currentRepository ??
-          undefined
+          undefined;
         setPendingWorkspace({
           name: workspace.name,
           repository: repoToUse,
-        })
-      }
+        });
+      };
 
       // Använder index som fallback för nyckel om namn saknas
       const key =
         workspace.name && workspace.name.trim()
           ? workspace.name
-          : `workspace-${index}`
+          : `workspace-${index}`;
 
       return (
         <div key={key} role="listitem" aria-label={displayLabel}>
@@ -1362,16 +1430,16 @@ export const Workflow: React.FC<WorkflowProps> = ({
             }}
           />
         </div>
-      )
+      );
     })
-  )
+  );
 
   // Renderar huvud med återställningsknapp
   const renderHeader = () => {
-    let resetButton: React.ReactNode = null
+    let resetButton: React.ReactNode = null;
     const canShowReset =
       state !== ViewMode.INITIAL &&
-      !(state === ViewMode.DRAWING && (clickCount || 0) === 0)
+      !(state === ViewMode.DRAWING && (clickCount || 0) === 0);
 
     if (canShowReset) {
       const resetEnabled = canResetButton(
@@ -1381,7 +1449,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         drawnArea ?? 0,
         isDrawing,
         clickCount
-      )
+      );
 
       if (resetEnabled) {
         resetButton = (
@@ -1398,27 +1466,27 @@ export const Workflow: React.FC<WorkflowProps> = ({
             logging={{ enabled: true, prefix: "FME-Export-Header" }}
             block={false}
           />
-        )
+        );
       }
     }
 
-    if (!resetButton) return null
+    if (!resetButton) return null;
 
-    return resetButton
-  }
+    return resetButton;
+  };
 
   // Renderar initialt tillstånd (väntar på moduler eller ritverktygsval)
   const renderInitial = () => {
-    const waitMessage = translate("statusInitMap")
-    const waitDetail = translate("msgLoadingDraw")
+    const waitMessage = translate("statusInitMap");
+    const waitDetail = translate("msgLoadingDraw");
     if (isModulesLoading) {
-      return renderLoading(waitMessage, waitDetail, [translate("tipDrawMode")])
+      return renderLoading(waitMessage, waitDetail, [translate("tipDrawMode")]);
     }
     if (!canDraw) {
-      return renderLoading(waitMessage, waitDetail, [translate("tipDrawMode")])
+      return renderLoading(waitMessage, waitDetail, [translate("tipDrawMode")]);
     }
-    return renderDrawingModeTabs()
-  }
+    return renderDrawingModeTabs();
+  };
 
   // Renderar rittillstånd med instruktionstext
   const renderDrawing = () => (
@@ -1432,49 +1500,49 @@ export const Workflow: React.FC<WorkflowProps> = ({
         {instructionText}
       </div>
     </div>
-  )
+  );
 
   // Route guard: Kontrollera om startup-validering ska visas
   const shouldShowStartupValidation = () =>
-    state === ViewMode.STARTUP_VALIDATION
+    state === ViewMode.STARTUP_VALIDATION;
 
   // Route guard: Kontrollera om orderresultat ska visas
   const shouldShowOrderResult = () =>
-    state === ViewMode.ORDER_RESULT && orderResult
+    state === ViewMode.ORDER_RESULT && orderResult;
 
   // Route guard: Kontrollera om submission progress ska visas
-  const shouldShowSubmissionProgress = () => isSubmittingOrder
+  const shouldShowSubmissionProgress = () => isSubmittingOrder;
 
   // Route guard: Kontrollera om fel ska visas
-  const shouldShowError = () => Boolean(error)
+  const shouldShowError = () => Boolean(error);
 
   // Route guard: Kontrollera om geometry-validering pågår
   const shouldShowGeometryValidation = () =>
     isValidatingGeometry &&
     (state === ViewMode.DRAWING ||
       state === ViewMode.EXPORT_OPTIONS ||
-      state === ViewMode.WORKSPACE_SELECTION)
+      state === ViewMode.WORKSPACE_SELECTION);
 
   // Renderar startup-validering (fel eller laddning)
   const renderStartupValidation = () => {
     if (startupValidationError) {
-      const supportHint = config?.supportEmail || ""
+      const supportHint = config?.supportEmail || "";
       return renderError(
         startupValidationError.message,
         undefined,
         onRetryValidation ||
           (() => {
-            window.location.reload()
+            window.location.reload();
           }),
         startupValidationError.code,
         startupValidationError.userFriendlyMessage || supportHint
-      )
+      );
     }
 
     const loadingMessage =
-      startupValidationStep || translate("statusValidating")
-    return renderLoading(loadingMessage)
-  }
+      startupValidationStep || translate("statusValidating");
+    return renderLoading(loadingMessage);
+  };
 
   // Renderar orderresultat
   const renderOrderResult = () => (
@@ -1486,37 +1554,37 @@ export const Workflow: React.FC<WorkflowProps> = ({
       onReset={onReset}
       config={config}
     />
-  )
+  );
 
   // Renderar submission progress med fasmeddelanden
   const renderSubmissionProgress = () => {
-    const isSyncMode = Boolean(config?.syncMode)
-    const baseKey = isSyncMode ? "submittingOrderSync" : "submittingOrder"
-    const baseMessage = translate(baseKey)
+    const isSyncMode = Boolean(config?.syncMode);
+    const baseKey = isSyncMode ? "submittingOrderSync" : "submittingOrder";
+    const baseMessage = translate(baseKey);
 
-    let phaseKey: string | null = null
+    let phaseKey: string | null = null;
 
     switch (submissionPhase) {
       case "preparing":
-        phaseKey = "statusPreparing"
-        break
+        phaseKey = "statusPreparing";
+        break;
       case "uploading":
-        phaseKey = "statusUploading"
-        break
+        phaseKey = "statusUploading";
+        break;
       default:
-        phaseKey = null
+        phaseKey = null;
     }
 
     if (phaseKey) {
-      return renderLoading(baseMessage, translate(phaseKey))
+      return renderLoading(baseMessage, translate(phaseKey));
     }
 
     if (isSyncMode) {
-      return renderLoading(baseMessage, translate("msgProcessingWait"))
+      return renderLoading(baseMessage, translate("msgProcessingWait"));
     }
 
-    return renderLoading(baseMessage, translate("msgPleaseWait"))
-  }
+    return renderLoading(baseMessage, translate("msgPleaseWait"));
+  };
 
   // Renderar fel med användarmeddelande
   const renderErrorView = () =>
@@ -1526,7 +1594,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       error.severity !== "info" ? onBack : undefined,
       error.code,
       error.userFriendlyMessage
-    )
+    );
 
   // Renderar geometry-validering laddning
   const renderGeometryValidation = () => (
@@ -1536,29 +1604,29 @@ export const Workflow: React.FC<WorkflowProps> = ({
         translate("msgCheckGeom")
       )}
     />
-  )
+  );
 
   // Renderar vy baserat på state (för normala vyer)
   const renderViewByState = () => {
     switch (state) {
       case ViewMode.INITIAL:
-        return renderInitial()
+        return renderInitial();
       case ViewMode.DRAWING:
         if ((clickCount || 0) === 0) {
-          return renderDrawingModeTabs()
+          return renderDrawingModeTabs();
         }
-        return renderDrawing()
+        return renderDrawing();
       case ViewMode.EXPORT_OPTIONS:
       case ViewMode.WORKSPACE_SELECTION:
-        return renderSelection()
+        return renderSelection();
       case ViewMode.EXPORT_FORM:
-        return renderForm()
+        return renderForm();
       case ViewMode.ORDER_RESULT:
-        return renderError(translate("msgNoResult"), onBack)
+        return renderError(translate("msgNoResult"), onBack);
       default:
-        return renderInitial()
+        return renderInitial();
     }
-  }
+  };
 
   // Renderar workspace-val med laddning och fel
   const renderSelection = () => {
@@ -1566,36 +1634,36 @@ export const Workflow: React.FC<WorkflowProps> = ({
       isPrefetchingWorkspaces &&
         workspaceItems.length &&
         state === ViewMode.WORKSPACE_SELECTION
-    )
+    );
 
     const shouldShowLoading = shouldShowWorkspaceLoading(
       isWorkspaceLoading || isPrefetchLoading,
       workspaceItems,
       state,
       Boolean(workspaceError)
-    )
+    );
 
     if (shouldShowLoading) {
-      const message = translate("statusLoadWorkspaces")
-      const detail = isPrefetchLoading ? "" : translate("statusLoadWorkspaces")
+      const message = translate("statusLoadWorkspaces");
+      const detail = isPrefetchLoading ? "" : translate("statusLoadWorkspaces");
 
-      return renderLoading(message, detail)
+      return renderLoading(message, detail);
     }
 
     if (workspaceError) {
-      return renderError(workspaceError, onBack, loadWsList)
+      return renderError(workspaceError, onBack, loadWsList);
     }
 
     if (!workspaceItems.length) {
       const actions = [
         { label: translate("btnRetry"), onClick: loadWsList },
         { label: translate("btnBack"), onClick: onBack },
-      ]
+      ];
       return (
         <StateView
           state={makeEmptyView(translate("msgNoWorkspaces"), actions)}
         />
-      )
+      );
     }
 
     return (
@@ -1604,17 +1672,17 @@ export const Workflow: React.FC<WorkflowProps> = ({
           {renderWorkspaceButtons()}
         </div>
       </div>
-    )
-  }
+    );
+  };
 
   // Renderar exportformulär med parametrar
   const renderForm = () => {
     if (!onFormBack || !onFormSubmit) {
-      return renderError(translate("errNoConfig"), onBack)
+      return renderError(translate("errNoConfig"), onBack);
     }
 
     if (!workspaceParameters || !selectedWorkspace) {
-      return renderLoading(translate("statusLoadWorkspaces"))
+      return renderLoading(translate("statusLoadWorkspaces"));
     }
 
     return (
@@ -1634,25 +1702,25 @@ export const Workflow: React.FC<WorkflowProps> = ({
           jimuMapView={jimuMapView}
         />
       </>
-    )
-  }
+    );
+  };
 
   // Renderar aktuell vy baserat på state (förenklad med route guards)
   const renderCurrent = () => {
-    if (shouldShowStartupValidation()) return renderStartupValidation()
-    if (shouldShowOrderResult()) return renderOrderResult()
-    if (shouldShowSubmissionProgress()) return renderSubmissionProgress()
-    if (shouldShowError()) return renderErrorView()
-    if (shouldShowGeometryValidation()) return renderGeometryValidation()
-    return renderViewByState()
-  }
+    if (shouldShowStartupValidation()) return renderStartupValidation();
+    if (shouldShowOrderResult()) return renderOrderResult();
+    if (shouldShowSubmissionProgress()) return renderSubmissionProgress();
+    if (shouldShowError()) return renderErrorView();
+    if (shouldShowGeometryValidation()) return renderGeometryValidation();
+    return renderViewByState();
+  };
 
   return (
     <div css={styles.parent}>
       <div css={styles.header}>{showHeaderActions ? renderHeader() : null}</div>
       <div css={styles.content}>{renderCurrent()}</div>
     </div>
-  )
-}
+  );
+};
 
-export default Workflow
+export default Workflow;

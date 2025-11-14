@@ -72,7 +72,7 @@ System.register([], function (e) {
         msgJobCancelled: "Jobbet avbröts",
         msgJobTimeout: "Jobbet överskred tidsgränsen",
         msgJobFailed: "Jobbet misslyckades i FME Flow",
-        msgProcessingWait: "Bearbetar. Vänligen vänta…",
+        msgProcessingWait: "Bearbetar… vänligen vänta…",
         msgValidating: "Validerar parametervärden…",
         msgUploading: "Överför datakälla…",
         msgConfiguring: "Konfigurerar FME Flow-jobb…",
@@ -90,19 +90,21 @@ System.register([], function (e) {
         msgNoWorkspaces: "Inga workspaces hittades i detta repository",
         msgAsyncForced:
           "Området {area} är stort och kan medföra längre bearbetningstid",
-        forcedAsyncArea: "Området överskrider den tillåtna gränsen",
-        forcedAsyncUrlLength: "Längden på URL:en överskrider gränsen",
+        forcedAsyncArea:
+          "Området {area} är stort och kan medföra längre bearbetningstid",
+        forcedAsyncUrlLength:
+          "URL:en är {urlLength} tecken lång och överskrider den tillåtna gränsen. Automatiskt växlat till e‑postavisering",
         msgNoGeometry: "Inget område har valts. Rita ett område i kartan",
         msgGeomReady:
           "Område definierat ({rings} polygoner, {vertices} hörnpunkter)",
-        msgContactSupport: "Kontakta gärna support via {email}",
+        msgContactSupport: "Kontakta support på {email}",
         msgEmailSent: "E-postmeddelande skickas när jobbet är klart",
         msgTableEmpty: "Inga rader har lagts till",
         msgSetupWidget: "Widgeten behöver konfigureras innan den kan användas",
         msgCheckSettings:
           "Kontrollera anslutningsinställningarna i konfigurationspanelen",
         msgCheckToken: "Verifiera API-token i inställningarna",
-        msgCheckUrl: "Kontrollera FME Flow server-URL i inställningarna",
+        msgCheckUrl: "Kontrollera FME Flow-serverns URL i inställningarna",
         msgCheckRepo: "Välj ett giltigt repository i inställningarna",
         msgCheckNetwork:
           "Kontrollera nätverksanslutning och brandväggsinställningar",
@@ -121,18 +123,19 @@ System.register([], function (e) {
         msgOrderSuccess: "Exporten skickades",
         msgOrderFail: "Exporten misslyckades",
         msgJobCompletionPublished:
-          "Meddelande om exportjobbets slutförande skickat till andra widgets",
+          "Meddelande om att exportjobbet slutförts har skickats till andra widgets",
         msgJobMessagePublishFailed:
-          "Kunde inte meddela andra widgets om exportens slutförande",
+          "Misslyckades med att meddela andra widgets om att exporten har slutförts",
         errNoSetup: "Widgeten är inte konfigurerad",
-        errTokenInvalid: "API-token saknas eller är ogiltigt",
+        errTokenInvalid: "API-token saknas eller är ogiltig",
         errNoRepository: "Repository kan inte nås",
         errNoAccess:
           "Repository kunde inte verifieras med aktuellt API-token. Kontrollera behörigheter eller välj ett annat repository",
         errServerUnreach: "FME Flow-servern kan inte nås",
         errConnectFail: "Anslutningen till FME Flow misslyckades",
         errAuthFail: "Autentiseringen mot FME Flow misslyckades",
-        errValidateFail: "Server ogiltig eller felaktig konfiguration",
+        errValidateFail:
+          "Servern är ogiltig eller har en felaktig konfiguration",
         errStartupFail: "Widgeten kunde inte startas",
         errSubmitFail: "Jobbet kunde inte skickas",
         errWorkspaceLoad: "Workspace kunde inte läsas in",
@@ -140,18 +143,18 @@ System.register([], function (e) {
         errRepoLoad: "Repository kunde inte läsas in",
         errDatasetResolve: "Datakällan kunde inte fastställas",
         errGeomProcess: "Geometribearbetningen misslyckades",
-        errNoServerUrl: "URL till FME Flow-server saknas",
+        errNoServerUrl: "URL till FME Flow-servern saknas",
         errNoToken: "API-token saknas",
         errTokenSpace: "API-token får inte innehålla mellanslag",
         errNoRepoSelected: "Inget repository har valts",
         errNoWorkspace: "Ingen workspace har valts",
         errRepoInvalid: "Ogiltigt repository",
         errWorkspaceInvalid: "Ogiltig workspace",
-        errOrderFail: "Exportbeställningen misslyckades",
+        errOrderFail: "Exporten misslyckades",
         errJobSubmit: "FME Flow-jobbet kunde inte skickas",
         errMapInit: "Kartan kunde inte initieras",
         errDrawComplete: "Ritningen kunde inte slutföras",
-        errNoUserEmail: "Saknas e-postadress för användaren",
+        errNoUserEmail: "Användarens e‑postadress saknas",
         errLoadTimeout: "Inläsningen överskred tidsgränsen",
         errEmailInvalid: "Ogiltig e-postadress",
         errTransformFailed:
@@ -174,10 +177,11 @@ System.register([], function (e) {
         errAreaLarge: "Området överskrider maxgränsen",
         errGeomReq: "Ingen geometri har angivits",
         errGeomPolygon: "Geometrin måste vara en polygon",
-        errorTokenIssue: "API-token saknas eller är ogiltigt",
+        errorTokenIssue: "API-token saknas eller är ogiltig",
         errorServerUnreachable: "FME Flow-servern kan inte nås",
         errorSetupRequired: "Widgeten är inte konfigurerad",
-        errorValidationFailed: "Server ogiltig eller felaktig konfiguration",
+        errorValidationFailed:
+          "Servern är ogiltig eller har en felaktig konfiguration",
         errorStartupFailed: "Widgeten kunde inte startas",
         errorRepositoryAccess: "Repository kan inte nås",
         errorJobSubmission: "FME Flow-jobbet kunde inte skickas",
@@ -185,7 +189,7 @@ System.register([], function (e) {
         errorOrderFailed: "Exporten misslyckades",
         errorWidgetIdMissing: "Widget-ID saknas eller är ogiltigt",
         configurationInvalid: "Ogiltig widgetkonfiguration",
-        userEmailMissingError: "Saknas e-postadress för användaren",
+        userEmailMissingError: "Användarens e‑postadress saknas",
         geometryMissingCode: "Geometri saknas",
         geometryTypeInvalidCode: "Endast polygongeometri tillåts",
         geometrySerializationFailedCode: "Geometrin kunde inte serialiseras",
@@ -248,10 +252,10 @@ System.register([], function (e) {
         hintAreaTooLarge:
           "Stort område kan ge längre exporttid. Överväg att minska storleken",
         hintSetupWidget: "Widgeten behöver konfigureras innan den kan användas",
-        contactSupportEmail: "Kontakta support via {email}",
+        contactSupportEmail: "Kontakta support på {email}",
         tokenSettingsHint: "Verifiera API-token i inställningarna",
         serverUrlSettingsHint:
-          "Kontrollera FME Flow server-URL i inställningarna",
+          "Kontrollera FME Flow-serverns URL i inställningarna",
         repositorySettingsHint: "Välj ett giltigt repository i inställningarna",
         connectionSettingsHint:
           "Kontrollera anslutningsinställningarna i konfigurationspanelen",
@@ -278,7 +282,7 @@ System.register([], function (e) {
         alertCancelledUser: "Exporten avbröts",
         alertJobFailed: "FME Flow-transformationen misslyckades",
         alertTransformError: "Datatransformationen kunde inte slutföras",
-      })
+      });
     },
-  }
-})
+  };
+});
