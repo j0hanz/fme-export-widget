@@ -1836,15 +1836,11 @@ export class FmeFlowApiClient {
     });
     
     const repo = this.resolveRepository(repository);
-    const endpoint = this.jobsEndpoint();
+    // V4 API: Use workspace-specific endpoint for job submission
+    const endpoint = this.workspaceEndpoint(repo, workspace, "submit");
     const jobRequest = this.formatJobParams(parameters);
-    const bodyWithWorkspace = {
-      repository: repo,
-      workspace: workspace,
-      ...jobRequest,
-    };
 
-    console.log('[FME] Job request body keys:', Object.keys(bodyWithWorkspace));
+    console.log('[FME] Job request body keys:', Object.keys(jobRequest));
 
     // Bygger service-mode query-parametrar
     const query: PrimitiveParams = {};
@@ -1862,7 +1858,7 @@ export class FmeFlowApiClient {
         this.request<JobResult>(endpoint, {
           method: HttpMethod.POST,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(bodyWithWorkspace),
+          body: JSON.stringify(jobRequest),
           query,
           signal,
           cacheHint: false,
