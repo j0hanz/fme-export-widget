@@ -2055,10 +2055,16 @@ export class FmeFlowApiClient {
         requestHostKey === serverHostKey &&
         this.config.token
       ) {
-        if (!query.fmetoken) {
+        // Bestäm endpoint-typ för token-injektion
+        const isRestApiEndpoint = endpoint.includes('/jobs') || endpoint.includes('/fmeapiv4');
+        const isWebhookEndpoint = endpoint.includes('/fmedatadownload') || endpoint.includes('/fmedatastreaming');
+        
+        // Lägg till fmetoken i query om ej webhook-endpoint
+        if (!query.fmetoken && (isWebhookEndpoint || !isRestApiEndpoint)) {
           query.fmetoken = this.config.token;
         }
-        // Lägg till Authorization-header med FME Flow-format
+        
+        // Lägg till Authorization-header
         const authHeaders = {
           ...(requestOptions.headers ?? {}),
         } as { [key: string]: string };
