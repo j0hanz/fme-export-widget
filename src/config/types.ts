@@ -905,6 +905,7 @@ export interface NormalizedServiceInfo {
   readonly message?: string;
   readonly jobId?: number;
   readonly url?: string;
+  readonly mode?: ServiceMode;
 }
 
 export interface WorkspaceDatasetProperty {

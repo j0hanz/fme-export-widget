@@ -399,6 +399,21 @@ export const collectGeometryParamNames = (
   return names;
 };
 
+export const summarizeGeometryParameters = (
+  params?: readonly WorkspaceParameter[] | null
+): {
+  readonly names: readonly string[];
+  readonly count: number;
+  readonly warning: boolean;
+} => {
+  const names = collectGeometryParamNames(params);
+  return {
+    names,
+    count: names.length,
+    warning: names.length > 1,
+  };
+};
+
 const extractPolygonJson = (
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined

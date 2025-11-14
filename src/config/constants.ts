@@ -184,6 +184,9 @@ export const FME_FLOW_API = Object.freeze({
     "opt_responseformat",
     "opt_showresult",
     "opt_servicemode",
+    "tm_ttc",
+    "tm_ttl",
+    "tm_tag",
   ] as const),
   JOB_RESULT_POLL_INTERVAL_MS: 2000,
   JOB_RESULT_MAX_WAIT_MS: 300000,
@@ -281,7 +284,6 @@ export const OPTIONAL_OPT_KEYS = Object.freeze([
 
 export const WEBHOOK_EXCLUDE_PARAMS = Object.freeze([
   ...FME_FLOW_API.WEBHOOK_EXCLUDE_KEYS,
-  ...TM_PARAM_KEYS,
 ] as const);
 
 export const PUBLISHED_PARAM_EXCLUDE_SET: ReadonlySet<string> = new Set([

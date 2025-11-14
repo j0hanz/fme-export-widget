@@ -90,7 +90,16 @@ export const isValidExternalUrlForOptGetUrl = (s: string): boolean => {
     return false;
   }
 
-  if (url.username || url.password || url.protocol !== "https:") return false;
+  const protocol = url.protocol.toLowerCase();
+  const allowedProtocols = ["https:", "http:", "ftp:"];
+  if (!allowedProtocols.includes(protocol)) return false;
+
+  if (protocol === "ftp:") {
+    return Boolean(url.hostname);
+  }
+
+  if (url.username || url.password) return false;
+  if (protocol === "http:") return false;
 
   const host = url.hostname.toLowerCase();
   if (!host || hasDisallowedSuffix(host)) return false;
@@ -106,6 +115,12 @@ export const isValidExternalUrlForOptGetUrl = (s: string): boolean => {
   }
 
   return true;
+};
+
+export const isFtpUrl = (url: string): boolean => {
+  const trimmed = toTrimmedStringOrEmpty(url);
+  if (!trimmed) return false;
+  return /^ftp:\/\//i.test(trimmed);
 };
 
 const isNumericSelectOptionValue = (value: unknown): boolean => {

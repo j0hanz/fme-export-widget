@@ -39,6 +39,7 @@ import type {
   PublishedParameterEntry,
   RequestConfig,
   RequestLog,
+  ServiceMode,
   SubmitParametersPayload,
   TMDirectives,
   UnknownValueMap,
@@ -1828,6 +1829,17 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     const targetRepository = this.resolveRepository(repository);
+    const serviceMode = this.resolveServiceMode(parameters);
+
+    if (serviceMode === "async") {
+      return await this.submitJob(
+        workspace,
+        parameters,
+        targetRepository,
+        signal
+      );
+    }
+
     return await this.runDataDownload(
       workspace,
       parameters,
@@ -1865,7 +1877,7 @@ export class FmeFlowApiClient {
       );
       const params = buildParams(
         parameters,
-        [...FME_FLOW_API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
+        [...FME_FLOW_API.WEBHOOK_EXCLUDE_KEYS],
         true
       );
 
@@ -1873,22 +1885,6 @@ export class FmeFlowApiClient {
       if (this.config.token) {
         params.set("token", this.config.token);
       }
-
-      // Ensure tm_* values are present if provided
-      const maybeAppend = (k: string) => {
-        const v = (parameters as { [key: string]: unknown })[k];
-        if (
-          v !== undefined &&
-          v !== null &&
-          (typeof v === "string" || typeof v === "number") &&
-          String(v).length > 0
-        ) {
-          params.set(k, String(v));
-        }
-      };
-      maybeAppend("tm_ttc");
-      maybeAppend("tm_ttl");
-      maybeAppend("tm_tag");
 
       const q = params.toString();
       const fullUrl = `${webhookUrl}?${q}`;
@@ -2132,6 +2128,43 @@ export class FmeFlowApiClient {
         details
       );
     }
+  }
+
+  async getJobStatus(
+    jobId: number,
+    signal?: AbortSignal
+  ): Promise<ApiResponse<JobResult>> {
+    if (!Number.isFinite(jobId) || jobId <= 0) {
+      throw makeFlowError("JOB_STATUS_ERROR");
+    }
+
+    const endpoint = buildUrl(
+      this.config.serverUrl,
+      this.basePath.slice(1),
+      "jobs",
+      String(jobId)
+    );
+
+    return this.withApiError(
+      () =>
+        this.request<JobResult>(endpoint, {
+          signal,
+          cacheHint: false,
+        }),
+      "JOB_STATUS_ERROR",
+      "JOB_STATUS_ERROR"
+    );
+  }
+
+  private resolveServiceMode(parameters: PrimitiveParams = {}): ServiceMode {
+    const raw = (parameters as { [key: string]: unknown })?.opt_servicemode;
+    if (typeof raw === "string") {
+      const normalized = raw.trim().toLowerCase();
+      if (normalized === "sync" || normalized === "async") {
+        return normalized as ServiceMode;
+      }
+    }
+    return "async";
   }
 }
 

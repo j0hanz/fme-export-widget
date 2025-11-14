@@ -45,7 +45,8 @@ import {
   uniqueStrings,
 } from "./form";
 import { formatByteSize, maskEmailForDisplay } from "./format";
-import { attachAoi, collectGeometryParamNames } from "./geometry";
+import { attachAoi, summarizeGeometryParameters } from "./geometry";
+import { logWarn } from "./logging";
 import { buildParams, buildUrl, safeParseUrl } from "./network";
 
 const toDictionary = (value: unknown): Dictionary | null => {
@@ -596,7 +597,15 @@ export const prepFmeParams = (
     chosen,
     normalizedConfig
   );
-  const geometryParamNames = collectGeometryParamNames(workspaceParameters);
+  const geometryParamSummary = summarizeGeometryParameters(workspaceParameters);
+  if (geometryParamSummary.warning) {
+    const label = geometryParamSummary.names.join(", ");
+    logWarn(
+      "FME Export: Workspace har flera geometri-parametrar, AOI bifogas till alla",
+      label || "okända parametrar"
+    );
+  }
+  const geometryParamNames = geometryParamSummary.names;
   const withAoi = attachAoi(
     base,
     geometryJson,
@@ -779,20 +788,27 @@ export const normalizeFmeServiceInfo = (
   const raw =
     (r?.data as { [key: string]: unknown })?.serviceResponse || r?.data || r;
   const rawRecord = raw as { [key: string]: unknown };
-  const status =
-    (rawRecord?.statusInfo as { [key: string]: unknown })?.status ||
-    rawRecord?.status;
-  const message =
-    (rawRecord?.statusInfo as { [key: string]: unknown })?.message ||
-    rawRecord?.message;
+  const statusInfo = rawRecord?.statusInfo as
+    | { [key: string]: unknown }
+    | undefined;
+  const status = statusInfo?.status || rawRecord?.status;
+  const message = statusInfo?.message || rawRecord?.message;
   const jobId =
     typeof rawRecord?.jobID === "number" ? rawRecord.jobID : rawRecord?.id;
   const url = rawRecord?.url;
+  const modeCandidate = (statusInfo?.mode || rawRecord?.mode) as
+    | string
+    | undefined;
+  const mode: ServiceMode | undefined =
+    modeCandidate === "sync" || modeCandidate === "async"
+      ? modeCandidate
+      : undefined;
   return {
     status: status as string,
     message: message as string,
     jobId: jobId as number,
     url: url as string,
+    mode,
   };
 };
 
@@ -834,6 +850,7 @@ const appendWebhookTmParams = (
 ): void => {
   // Lägg till numeriska TM-parametrar (timeout, pri, tag osv.)
   for (const key of TM_NUMERIC_PARAM_KEYS) {
+    if (params.has(key)) continue;
     const value = parseNonNegativeInt(
       (source as { [key: string]: unknown })[key]
     );
@@ -841,8 +858,13 @@ const appendWebhookTmParams = (
   }
 
   // Lägg till tm_tag om definierad
-  const tag = normalizeText((source as { [key: string]: unknown }).tm_tag, 128);
-  if (tag) params.set("tm_tag", tag);
+  if (!params.has("tm_tag")) {
+    const tag = normalizeText(
+      (source as { [key: string]: unknown }).tm_tag,
+      128
+    );
+    if (tag) params.set("tm_tag", tag);
+  }
 };
 
 // Skapar webhook-URL med query-parametrar för FME-jobb

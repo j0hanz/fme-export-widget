@@ -8,6 +8,10 @@ Exportera ett *Area of Interest* (AOI) från en karta i ArcGIS Experience Builde
 
 Widgeten adresserar FME Flow REST API V4 via baskontexten `/fmeapiv4`. Äldre miljöer kan byggas mot V3 genom att justera `FME_FLOW_API.BASE_PATH` i `src/config/constants.ts` före bygge.
 
+## Leveranslägen
+
+Widgeten stöder endast de dokumenterade lägena **Sync** och **Async**. Schemalagd körning (`schedule`-läget) kräver längre sessioner än vad Experience Builder-widgetar erbjuder och är därför uttryckligen **inte** implementerad. Om ett schema behövs ska uppdraget i stället konfigureras i FME Flow-gränssnittet.
+
 ## Presentation
 
 * 📄 **FME Användarträff 2025**
