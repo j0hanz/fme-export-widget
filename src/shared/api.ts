@@ -51,7 +51,6 @@ import {
   FmeFlowApiError,
   HttpMethod,
 } from "../config/index";
-import { conditionalLog } from "./services/logging";
 import {
   buildParams,
   buildUrl,
@@ -85,10 +84,17 @@ import {
 
 // Configuration
 /* Standardkonfiguration för nätverksinstrumentering */
-const config: NetworkConfig = { ...DEFAULT_NETWORK_CONFIG };
+const config: NetworkConfig = { 
+  ...DEFAULT_NETWORK_CONFIG,
+  enabled: true,
+  logLevel: 'debug', // Always enable debug logging
+};
 
 // Network history buffer för debugging
 const networkHistory: RequestLog[] = [];
+
+// Log initialization
+console.log('[FME] API logging initialized - level:', config.logLevel);
 
 function addToNetworkHistory(log: RequestLog): void {
   networkHistory.push(log);
@@ -395,25 +401,25 @@ function logRequest(
       if (bodyPreview) payload.body = bodyPreview;
       if (errorMessage) payload.error = errorMessage;
 
-      conditionalLog(`[FME][net] ${icon}`, payload);
+      console.log(`[FME][net] ${icon}`, payload);
     } else if (config.logLevel === "warn") {
       const summary = `[FME][net] ${phase} ${log.method} ${log.path} ${log.status || "?"} ${log.durationMs}ms`;
-      conditionalLog(summary, {
+      console.log(summary, {
         correlationId: log.correlationId,
         ...(log.caller && { caller: log.caller }),
       });
     }
 
     if (log.durationMs >= config.warnSlowMs) {
-      conditionalLog("[FME][net] slow", {
+      console.warn("[FME][net] SLOW REQUEST", {
         method: log.method,
         path: log.path,
         durationMs: log.durationMs,
         correlationId: log.correlationId,
       });
     }
-  } catch {
-    // Suppress logging errors
+  } catch (logError) {
+    console.error("[FME] Logging error:", logError);
   }
 }
 
@@ -1424,6 +1430,12 @@ export class FmeFlowApiClient {
   private disposed = false;
 
   constructor(config: FmeFlowConfig) {
+    console.log('[FME] FmeFlowApiClient initialized', {
+      serverUrl: config.serverUrl,
+      repository: config.repository,
+      hasToken: !!config.token,
+      tokenLength: config.token?.length || 0,
+    });
     this.config = Object.freeze({ ...config });
     this.setupPromise = Promise.resolve();
     this.queueSetup(config);
@@ -1468,6 +1480,12 @@ export class FmeFlowApiClient {
       workspace?: string;
     }
   ): Promise<ApiResponse<{ path: string }>> {
+    console.log('[FME] uploadToTemp called', {
+      fileSize: file.size,
+      fileType: file.type,
+      hasWorkspace: !!options?.workspace,
+    });
+    
     if (options?.signal?.aborted) {
       throw new DOMException("Aborted", "AbortError");
     }
@@ -1811,6 +1829,12 @@ export class FmeFlowApiClient {
     repository?: string,
     signal?: AbortSignal
   ): Promise<ApiResponse<JobResult>> {
+    console.log('[FME] submitJob - async mode', { 
+      workspace, 
+      repository: repository || this.config.repository,
+      hasEmail: !!parameters.opt_requesteremail,
+    });
+    
     const repo = this.resolveRepository(repository);
     const endpoint = this.jobsEndpoint();
     const jobRequest = this.formatJobParams(parameters);
@@ -1819,6 +1843,8 @@ export class FmeFlowApiClient {
       workspace: workspace,
       ...jobRequest,
     };
+
+    console.log('[FME] Job request body keys:', Object.keys(bodyWithWorkspace));
 
     // Bygger service-mode query-parametrar
     const query: PrimitiveParams = {};
@@ -1852,8 +1878,17 @@ export class FmeFlowApiClient {
     repository?: string,
     signal?: AbortSignal
   ): Promise<ApiResponse> {
+    console.log('[FME] runWorkspace called', {
+      workspace,
+      repository: repository || this.config.repository,
+      paramCount: Object.keys(parameters).length,
+      hasSignal: !!signal,
+    });
+    
     const targetRepository = this.resolveRepository(repository);
     const serviceMode = this.resolveServiceMode(parameters);
+    
+    console.log('[FME] Service mode:', serviceMode, 'for workspace:', workspace);
 
     if (serviceMode === "async") {
       return await this.submitJob(
@@ -1878,6 +1913,7 @@ export class FmeFlowApiClient {
     repository: string,
     signal?: AbortSignal
   ): Promise<ApiResponse> {
+    console.log('[FME] runDataDownload - sync mode', { workspace, repository });
     return await this.runDownloadWebhook(
       workspace,
       parameters,
@@ -1892,6 +1928,7 @@ export class FmeFlowApiClient {
     repository: string,
     signal?: AbortSignal
   ): Promise<ApiResponse> {
+    console.log('[FME] runDownloadWebhook starting', { workspace, repository });
     try {
       const webhookUrl = buildUrl(
         this.config.serverUrl,
@@ -1912,6 +1949,8 @@ export class FmeFlowApiClient {
 
       const q = params.toString();
       const fullUrl = `${webhookUrl}?${q}`;
+      console.log('[FME] Webhook URL length:', fullUrl.length, 'chars');
+      
       try {
         const maxLen = getMaxUrlLength();
         if (
@@ -1919,6 +1958,7 @@ export class FmeFlowApiClient {
           maxLen > 0 &&
           fullUrl.length > maxLen
         ) {
+          console.error('[FME] URL too long!', { length: fullUrl.length, maxLen });
           // Emit a dedicated error code for URL length issues
           throw makeFlowError("URL_TOO_LONG", 0);
         }
@@ -1935,13 +1975,16 @@ export class FmeFlowApiClient {
         FME_FLOW_API.WEBHOOK_LOG_WHITELIST
       );
 
+      console.log('[FME] Fetching webhook URL:', webhookUrl.substring(0, 100) + '...');
       const response = await fetch(fullUrl, {
         method: "GET",
         signal,
       });
-
+      
+      console.log('[FME] Webhook response:', { status: response.status, ok: response.ok });
       return this.parseWebhookResponse(response);
     } catch (err) {
+      console.error('[FME] runDownloadWebhook error:', err);
       if (err instanceof FmeFlowApiError) throw err;
       const status = extractHttpStatus(err);
       // Surface a code-only message; services will localize
