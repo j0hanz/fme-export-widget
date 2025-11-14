@@ -32,7 +32,6 @@ import type {
   EsriResponseLike,
   FmeExportConfig,
   FmeFlowConfig,
-  FmeServiceInfo,
   InstrumentedRequestOptions,
   JobResult,
   NetworkConfig,
@@ -429,112 +428,6 @@ function inferOk(status?: number): boolean | undefined {
 const isUnknownValueMap = (value: unknown): value is UnknownValueMap =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const HTTP_URL_PATTERN = /^https?:\/\//i;
-
-const createAbortError = (): Error => {
-  try {
-    return new DOMException("Aborted", "AbortError");
-  } catch {
-    const error = new Error("AbortError");
-    error.name = "AbortError";
-    return error;
-  }
-};
-
-const throwIfAborted = (signal?: AbortSignal): void => {
-  if (signal?.aborted) {
-    throw createAbortError();
-  }
-};
-
-const delayWithSignal = (ms: number, signal?: AbortSignal): Promise<void> => {
-  if (!ms || ms <= 0) {
-    throwIfAborted(signal);
-    return Promise.resolve();
-  }
-
-  return new Promise<void>((resolve, reject) => {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let abortHandler: (() => void) | null = null;
-
-    const cleanup = (): void => {
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      if (signal && abortHandler) {
-        signal.removeEventListener("abort", abortHandler);
-      }
-    };
-
-    const rejectWithAbort = (): void => {
-      cleanup();
-      reject(createAbortError());
-    };
-
-    if (signal?.aborted) {
-      rejectWithAbort();
-      return;
-    }
-
-    abortHandler = rejectWithAbort;
-    if (signal) {
-      signal.addEventListener("abort", abortHandler);
-    }
-
-    timeoutId = setTimeout(
-      () => {
-        cleanup();
-        resolve();
-      },
-      Math.max(0, ms)
-    );
-  });
-};
-
-const toHttpUrl = (value: unknown): string | undefined => {
-  const candidate = toNonEmptyTrimmedString(value);
-  return candidate && HTTP_URL_PATTERN.test(candidate) ? candidate : undefined;
-};
-
-const extractFirstUrlCandidate = (
-  value: unknown,
-  depth = 0
-): string | undefined => {
-  if (depth > 5 || value == null) return undefined;
-
-  const direct = toHttpUrl(value);
-  if (direct) return direct;
-
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const match = extractFirstUrlCandidate(entry, depth + 1);
-      if (match) return match;
-    }
-    return undefined;
-  }
-
-  if (isUnknownValueMap(value)) {
-    for (const entry of Object.values(value)) {
-      const match = extractFirstUrlCandidate(entry, depth + 1);
-      if (match) return match;
-    }
-  }
-
-  return undefined;
-};
-
-const findFirstMessage = (
-  messages?: readonly unknown[]
-): string | undefined => {
-  if (!Array.isArray(messages)) return undefined;
-  for (const entry of messages) {
-    const trimmed = toTrimmedString(entry);
-    if (trimmed) return trimmed;
-  }
-  return undefined;
-};
-
 const normalizePathSegment = (segment?: string | null): string => {
   if (!segment) return "";
   return segment.replace(/\\+/g, "/").replace(/^\/+|\/+$/g, "");
@@ -599,75 +492,6 @@ const extractUploadedResourcePath = (value: unknown): string | undefined => {
   }
 
   return undefined;
-};
-
-const toJobIdValue = (value: unknown): number | undefined => {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-
-  return undefined;
-};
-
-const extractJobIdFromRecord = (candidate: unknown): number | undefined => {
-  if (!isUnknownValueMap(candidate)) return undefined;
-  return (
-    toJobIdValue(candidate.jobID) ||
-    toJobIdValue(candidate.jobId) ||
-    toJobIdValue(candidate.id)
-  );
-};
-
-const extractJobId = (jobResult?: JobResult | null): number | undefined => {
-  if (!jobResult || typeof jobResult !== "object") return undefined;
-  return (
-    toJobIdValue(jobResult.id) ||
-    toJobIdValue(jobResult.jobID) ||
-    extractJobIdFromRecord(jobResult.serviceResponse) ||
-    extractJobIdFromRecord(jobResult.result?.serviceResponse)
-  );
-};
-
-const buildServiceResponseFromJobResult = (
-  jobResult?: JobResult | null
-): FmeServiceInfo | undefined => {
-  if (!jobResult || typeof jobResult !== "object") return undefined;
-
-  const message =
-    toTrimmedString(jobResult.statusMessage) ||
-    toTrimmedString(jobResult.result?.statusMessage) ||
-    findFirstMessage(jobResult.result?.logMessages);
-
-  const url =
-    toHttpUrl(jobResult.url) ||
-    toHttpUrl(jobResult.serviceResponse?.url) ||
-    toHttpUrl(jobResult.result?.serviceResponse?.url) ||
-    toHttpUrl(jobResult.result?.downloadUrl) ||
-    toHttpUrl(jobResult.result?.url) ||
-    extractFirstUrlCandidate(jobResult.result?.files) ||
-    extractFirstUrlCandidate(jobResult.result?.outputs) ||
-    extractFirstUrlCandidate(jobResult.result?.data);
-
-  if (!message && !url && jobResult.status === undefined) {
-    return undefined;
-  }
-
-  const jobId = extractJobId(jobResult);
-
-  return {
-    status: jobResult.status as string | undefined,
-    message: message || undefined,
-    jobID: jobId,
-    id: jobId,
-    url: url || undefined,
-  };
 };
 
 const coerceDetailValue = (value: unknown, depth = 0): string | null => {
@@ -1752,16 +1576,6 @@ export class FmeFlowApiClient {
     return buildUrl(this.config.serverUrl, this.basePath.slice(1), "jobs");
   }
 
-  private jobResultEndpoint(jobId: number | string): string {
-    return buildUrl(
-      this.config.serverUrl,
-      this.basePath.slice(1),
-      "jobs",
-      String(jobId),
-      "result"
-    );
-  }
-
   private workspaceEndpoint(
     repository: string,
     workspace: string,
@@ -2005,62 +1819,6 @@ export class FmeFlowApiClient {
       "JOB_SUBMISSION_ERROR",
       "JOB_SUBMISSION_ERROR"
     );
-  }
-
-  private async getJobResult(
-    jobId: number,
-    options?: { signal?: AbortSignal; longPoll?: boolean }
-  ): Promise<ApiResponse<JobResult>> {
-    const endpoint = this.jobResultEndpoint(jobId);
-    const query: PrimitiveParams = {};
-    if (options?.longPoll) {
-      query.longPoll = "true";
-      query.longPollInterval = FME_FLOW_API.JOB_RESULT_LONG_POLL_INTERVAL_SEC;
-    }
-
-    return this.withApiError(
-      () =>
-        this.request<JobResult>(endpoint, {
-          signal: options?.signal,
-          cacheHint: false,
-          query,
-        }),
-      "JOB_RESULT_ERROR",
-      "JOB_RESULT_ERROR"
-    );
-  }
-
-  private async waitForJobResult(
-    jobId: number,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<JobResult>> {
-    const maxWait = Math.max(0, FME_FLOW_API.JOB_RESULT_MAX_WAIT_MS);
-    const pollDelay = Math.max(0, FME_FLOW_API.JOB_RESULT_POLL_INTERVAL_MS);
-    const deadline =
-      maxWait > 0 ? Date.now() + maxWait : Number.POSITIVE_INFINITY;
-    let attempt = 0;
-
-    while (true) {
-      throwIfAborted(signal);
-
-      const response = await this.getJobResult(jobId, {
-        signal,
-        longPoll: attempt === 0,
-      });
-
-      throwIfAborted(signal);
-
-      if (response.status !== HTTP_STATUS_CODES.ACCEPTED) {
-        return response;
-      }
-
-      if (Date.now() >= deadline) {
-        throw makeFlowError("JOB_RESULT_TIMEOUT", HTTP_STATUS_CODES.TIMEOUT);
-      }
-
-      await delayWithSignal(pollDelay, signal);
-      attempt += 1;
-    }
   }
 
   async runWorkspace(
