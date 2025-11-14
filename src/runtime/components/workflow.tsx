@@ -842,14 +842,12 @@ const ExportForm: React.FC<
 
       {/* Workspace parameters */}
       {(evaluatedFields.length > 0
-        ? evaluatedFields
+        ? evaluatedFields.filter((field) => {
+            const state = field.visibilityState ?? "visibleEnabled";
+            return state === "visibleEnabled" || state === "visibleDisabled";
+          })
         : validator.getFormConfig()
-      )
-        .filter((field) => {
-          const state = field.visibilityState ?? "visibleEnabled";
-          return state === "visibleEnabled" || state === "visibleDisabled";
-        })
-        .map((field) => {
+      ).map((field) => {
           if (!field || !field.name || !field.type) {
             return null;
           }
