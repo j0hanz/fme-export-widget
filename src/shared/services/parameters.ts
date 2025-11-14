@@ -170,16 +170,9 @@ export class ParameterFormService {
     if (SKIPPED_PARAMETER_NAMES.has(p.name)) return false;
     if (ALWAYS_SKIPPED_TYPES.has(p.type)) return false;
     if (LIST_REQUIRED_TYPES.has(p.type)) {
-      const choiceSettings =
-        p.control && isPlainObject(p.control)
-          ? (p.control as { [key: string]: unknown }).choiceSettings
-          : undefined;
-      const choices =
-        choiceSettings && isPlainObject(choiceSettings)
-          ? (choiceSettings as { [key: string]: unknown }).choices
-          : undefined;
-      const hasChoices =
-        choices && Array.isArray(choices) && choices.length > 0;
+      const choiceSettings = this.getChoiceSettings(p);
+      const choices = choiceSettings?.choices;
+      const hasChoices = Array.isArray(choices) && choices.length > 0;
 
       return (
         hasChoices ||
@@ -199,12 +192,31 @@ export class ParameterFormService {
     return parameters.filter((parameter) => this.isRenderableParam(parameter));
   }
 
+  private getChoiceSettings(
+    param: WorkspaceParameter
+  ): WorkspaceParameterWithChoices["choiceSettings"] | undefined {
+    const paramWithChoices = param as WorkspaceParameterWithChoices;
+    if (paramWithChoices.choiceSettings) {
+      return paramWithChoices.choiceSettings;
+    }
+
+    if (param.control && isPlainObject(param.control)) {
+      const nested = (param.control as { [key: string]: unknown })
+        .choiceSettings;
+      if (nested) {
+        return nested as WorkspaceParameterWithChoices["choiceSettings"];
+      }
+    }
+
+    return undefined;
+  }
+
   // Mappar FME V4 choiceSettings.choices till OptionItem-format
   private mapListOptions(
     param: WorkspaceParameter
   ): readonly OptionItem[] | undefined {
     const paramWithChoices = param as WorkspaceParameterWithChoices;
-    const choiceSettings = paramWithChoices.choiceSettings;
+    const choiceSettings = this.getChoiceSettings(param);
     if (!choiceSettings || !Array.isArray(choiceSettings.choices)) {
       return undefined;
     }
@@ -1489,17 +1501,11 @@ export class ParameterFormService {
         }
 
         // Validering av valbara alternativ (choices)
-        const choiceSettings =
-          param.control && isPlainObject(param.control)
-            ? (param.control as { [key: string]: unknown }).choiceSettings
-            : undefined;
-        const choices =
-          choiceSettings && isPlainObject(choiceSettings)
-            ? (choiceSettings as { [key: string]: unknown }).choices
-            : undefined;
-        const validChoices = buildChoiceSet(
-          Array.isArray(choices) ? choices : undefined
-        );
+        const choiceSettings = this.getChoiceSettings(param);
+        const choices = Array.isArray(choiceSettings?.choices)
+          ? choiceSettings?.choices
+          : undefined;
+        const validChoices = buildChoiceSet(choices);
         const choiceError = validateParamChoices(
           param.name,
           value,
@@ -1794,15 +1800,9 @@ export class ParameterFormService {
     }
 
     // Hantera valbara alternativ (choices)
-    const choiceSettings =
-      param.control && isPlainObject(param.control)
-        ? (param.control as { [key: string]: unknown }).choiceSettings
-        : undefined;
-    const choices =
-      choiceSettings && isPlainObject(choiceSettings)
-        ? (choiceSettings as { [key: string]: unknown }).choices
-        : undefined;
-    const hasOptions = choices && Array.isArray(choices) && choices.length > 0;
+    const choiceSettings = this.getChoiceSettings(param);
+    const choices = choiceSettings?.choices;
+    const hasOptions = Array.isArray(choices) && choices.length > 0;
 
     if (hasOptions) {
       // Bestäm om multi-select baserat på defaultValue

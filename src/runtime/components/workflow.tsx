@@ -847,7 +847,8 @@ const ExportForm: React.FC<
             return state === "visibleEnabled" || state === "visibleDisabled";
           })
         : validator.getFormConfig()
-      ).map((field) => {
+      )
+        .map((field) => {
           if (!field || !field.name || !field.type) {
             return null;
           }
