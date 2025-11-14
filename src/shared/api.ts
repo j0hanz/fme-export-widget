@@ -1612,18 +1612,13 @@ export class FmeFlowApiClient {
     workspace: string,
     ...segments: string[]
   ): string {
-    // V4 API quirk: /submit endpoint doesn't want .fmw, but other endpoints do
-    const isSubmitEndpoint = segments.length > 0 && segments[0] === 'submit';
-    const workspaceName = isSubmitEndpoint && workspace.endsWith('.fmw')
-      ? workspace.slice(0, -4) 
-      : workspace;
-    
+    // V4 API expects workspace name with .fmw extension for all endpoints
     return buildUrl(
       this.config.serverUrl,
       this.basePath.slice(1),
       "workspaces",
       repository,
-      workspaceName,
+      workspace,
       ...segments
     );
   }
