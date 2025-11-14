@@ -53,16 +53,19 @@ import {
 } from "../config/index";
 import { conditionalLog } from "./services/logging";
 import {
+  buildParams,
   buildUrl,
   createHostPattern,
   extractErrorMessage,
   extractHostFromUrl,
   extractRepositoryNames,
   interceptorExists,
+  isJson,
   isNonNegativeNumber,
   loadArcgisModules,
   makeScopeId,
   normalizeToLowerCase,
+  safeLogParams,
   safeParseUrl,
   toNonEmptyTrimmedString,
   toTrimmedString,
@@ -75,6 +78,7 @@ import {
 import { parseNonNegativeInt } from "./utils/fme";
 import {
   extractHttpStatus,
+  isAuthError,
   isRetryableError,
   validateRequiredConfig,
 } from "./validations";
@@ -1166,6 +1170,18 @@ let _loadPromise: Promise<void> | null = null;
 // Keep latest FME tokens per-host so the interceptor always uses fresh values
 const _fmeTokensByHost: { [host: string]: string } = Object.create(null);
 
+// Cache the result to avoid repeated config lookups
+let _cachedMaxUrlLength: number | null = null;
+const getMaxUrlLength = (): number => {
+  if (_cachedMaxUrlLength !== null) return _cachedMaxUrlLength;
+
+  const cfg = asEsriConfig(_esriConfig);
+  const n = cfg?.request?.maxUrlLength;
+  _cachedMaxUrlLength =
+    typeof n === "number" && n > 0 ? n : FME_FLOW_API.MAX_URL_LENGTH;
+  return _cachedMaxUrlLength;
+};
+
 // Hämtar fallback-mock för given nyckel
 const getEsriMockFallback = (key: EsriMockKey): unknown =>
   ESRI_MOCK_FALLBACKS[key];
@@ -1209,6 +1225,7 @@ export function resetEsriCache(): void {
   _webMercatorUtils = undefined;
   _SpatialReference = undefined;
   _loadPromise = null;
+  _cachedMaxUrlLength = null;
 }
 
 // Kontrollerar om alla ArcGIS-moduler är laddade
@@ -1714,7 +1731,7 @@ export class FmeFlowApiClient {
     const publishedParameters: PublishedParameterEntry[] = Object.entries(
       parameters
     )
-      .filter(([name]) => !TM_PARAM_KEYS.includes(name))
+      .filter(([name]) => !TM_PARAM_KEYS.some((key) => key === name))
       .map(([name, value]) => ({ name, value }));
 
     return buildSubmitBody(publishedParameters, parameters);
@@ -2051,53 +2068,132 @@ export class FmeFlowApiClient {
     parameters: PrimitiveParams = {},
     repository?: string,
     signal?: AbortSignal
-  ): Promise<ApiResponse<{ serviceResponse: FmeServiceInfo }>> {
-    throwIfAborted(signal);
+  ): Promise<ApiResponse> {
+    const targetRepository = this.resolveRepository(repository);
+    return await this.runDataDownload(
+      workspace,
+      parameters,
+      targetRepository,
+      signal
+    );
+  }
 
-    const submissionResponse = await this.submitJob(
+  private async runDataDownload(
+    workspace: string,
+    parameters: PrimitiveParams = {},
+    repository: string,
+    signal?: AbortSignal
+  ): Promise<ApiResponse> {
+    return await this.runDownloadWebhook(
       workspace,
       parameters,
       repository,
       signal
     );
+  }
 
-    throwIfAborted(signal);
+  private async runDownloadWebhook(
+    workspace: string,
+    parameters: PrimitiveParams = {},
+    repository: string,
+    signal?: AbortSignal
+  ): Promise<ApiResponse> {
+    try {
+      const webhookUrl = buildUrl(
+        this.config.serverUrl,
+        "fmedatadownload",
+        repository,
+        workspace
+      );
+      const params = buildParams(
+        parameters,
+        [...FME_FLOW_API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
+        true
+      );
 
-    const submissionData = submissionResponse.data;
-    if (!submissionData) {
-      throw makeFlowError("JOB_SUBMISSION_EMPTY", submissionResponse.status);
-    }
-
-    const immediateServiceResponse =
-      buildServiceResponseFromJobResult(submissionData) || undefined;
-    const jobId = extractJobId(submissionData);
-
-    if (!jobId) {
-      if (immediateServiceResponse) {
-        return {
-          data: { serviceResponse: immediateServiceResponse },
-          status: submissionResponse.status,
-          statusText: submissionResponse.statusText,
-        };
+      // Append token if available
+      if (this.config.token) {
+        params.set("token", this.config.token);
       }
-      throw makeFlowError("JOB_ID_MISSING", submissionResponse.status);
+
+      // Ensure tm_* values are present if provided
+      const maybeAppend = (k: string) => {
+        const v = (parameters as { [key: string]: unknown })[k];
+        if (
+          v !== undefined &&
+          v !== null &&
+          (typeof v === "string" || typeof v === "number") &&
+          String(v).length > 0
+        ) {
+          params.set(k, String(v));
+        }
+      };
+      maybeAppend("tm_ttc");
+      maybeAppend("tm_ttl");
+      maybeAppend("tm_tag");
+
+      const q = params.toString();
+      const fullUrl = `${webhookUrl}?${q}`;
+      try {
+        const maxLen = getMaxUrlLength();
+        if (
+          typeof maxLen === "number" &&
+          maxLen > 0 &&
+          fullUrl.length > maxLen
+        ) {
+          // Emit a dedicated error code for URL length issues
+          throw makeFlowError("URL_TOO_LONG", 0);
+        }
+      } catch (lenErr) {
+        if (lenErr instanceof FmeFlowApiError) throw lenErr;
+        // If any unexpected error occurs during length validation, proceed with webhook
+      }
+
+      // Best-effort safe logging without sensitive params
+      safeLogParams(
+        "WEBHOOK_CALL",
+        webhookUrl,
+        params,
+        FME_FLOW_API.WEBHOOK_LOG_WHITELIST
+      );
+
+      const response = await fetch(fullUrl, {
+        method: "GET",
+        signal,
+      });
+
+      return this.parseWebhookResponse(response);
+    } catch (err) {
+      if (err instanceof FmeFlowApiError) throw err;
+      const status = extractHttpStatus(err);
+      // Surface a code-only message; services will localize
+      throw makeFlowError("DATA_DOWNLOAD_ERROR", status || 0);
+    }
+  }
+
+  private async parseWebhookResponse(response: Response): Promise<ApiResponse> {
+    const contentType = response.headers.get("content-type");
+
+    if (!isJson(contentType)) {
+      throw makeFlowError("WEBHOOK_AUTH_ERROR", response.status);
     }
 
-    const finalResponse = await this.waitForJobResult(jobId, signal);
-    throwIfAborted(signal);
+    let responseData: unknown;
+    try {
+      responseData = await response.json();
+    } catch {
+      console.warn("FME API - Failed to parse webhook JSON response");
+      throw makeFlowError("WEBHOOK_AUTH_ERROR", response.status);
+    }
 
-    const finalServiceResponse =
-      buildServiceResponseFromJobResult(finalResponse.data) ||
-      immediateServiceResponse;
-
-    if (!finalServiceResponse) {
-      throw makeFlowError("JOB_RESULT_EMPTY", finalResponse.status);
+    if (isAuthError(response.status)) {
+      throw makeFlowError("WEBHOOK_AUTH_ERROR", response.status);
     }
 
     return {
-      data: { serviceResponse: finalServiceResponse },
-      status: finalResponse.status,
-      statusText: finalResponse.statusText,
+      data: responseData,
+      status: response.status,
+      statusText: response.statusText,
     };
   }
 
