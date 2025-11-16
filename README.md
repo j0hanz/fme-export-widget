@@ -239,18 +239,6 @@ window.__FME_DEBUG__ = {
 - **Inga workspaces:** Säkerställ att processer är publicerade till det valda repositoryt och att din token har åtkomst.
 - **Geometrifel:** Undvik självöverlappande polygoner och kontrollera `maxArea`-inställningen.
 
-## Teknisk referens
-
-Widgeten använder **FME Flow REST API v3** för att hantera:
-
-- Hälso- och statuskontroller av FME Flow.
-- Listning av repositories och FME-processer.
-- Hämtning av metadata och parametrar för en specifik process.
-- Start av synkrona och asynkrona jobb.
-- Filuppladdning till FME Flows temporära resurskatalog.
-
-En framtida uppdatering kommer att portera anropen till API v4.
-
 ## Support och resurser
 
 - **Frågor och diskussioner:** [GitHub Discussions](https://github.com/j0hanz/fme-export-widget/discussions)
