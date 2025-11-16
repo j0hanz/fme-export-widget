@@ -1,4 +1,4 @@
-# FME Export Widget
+﻿# FME Export Widget
 
 ![Version](https://img.shields.io/github/v/release/j0hanz/fme-export-widget?label=Version)![Uppdaterad](https://img.shields.io/github/last-commit/j0hanz/fme-export-widget?label=Updated)![Kodstorlek](https://img.shields.io/github/languages/code-size/j0hanz/fme-export-widget?label=Size)![FME Flow API v4](https://img.shields.io/badge/FME%20Flow%20API-V4-orange.svg?label=FME-Flow)
 
@@ -21,19 +21,20 @@ Den här README:n innehåller följande avsnitt för att hjälpa dig navigera oc
 hitta rätt information:
 
 1. [Snabböversikt](#snabböversikt)
-2. [Distribution](#distribution)
-3. [Funktioner](#funktioner)
-4. [Installation](#installation)
+1. [Snabbstart](#snabbstart)
+1. [Distribution](#distribution)
+1. [Funktioner](#funktioner)
+1. [Installation](#installation)
    1. [Systemkrav](#systemkrav)
-   2. [Installationssteg](#installationssteg)
-5. [Användning](#användning)
-6. [Konfiguration](#konfiguration)
-7. [Arkitektur](#arkitektur)
-8. [Kom igång med din egen widget](#kom-igång-med-din-egen-widget)
-9. [Felkoder](#felkoder)
-10. [Utveckling](#utveckling)
-11. [Vanliga frågor (FAQ)](#vanliga-frågor-faq)
-12. [Support och resurser](#support-och-resurser)
+   1. [Installationssteg](#installationssteg)
+1. [Användning](#användning)
+1. [Konfiguration](#konfiguration)
+1. [Arkitektur](#arkitektur)
+1. [Kom igång med din egen widget](#kom-igång-med-din-egen-widget)
+1. [Felkoder](#felkoder)
+1. [Utveckling](#utveckling)
+1. [Vanliga frågor (FAQ)](#vanliga-frågor-faq)
+1. [Support och resurser](#support-och-resurser)
 
 ---
 
@@ -41,12 +42,21 @@ hitta rätt information:
 
 | Komponent          | Version / Krav          |
 | ------------------ | ----------------------- |
-| Experience Builder | Developer Edition 1.14+ |
+| Experience Builder | Developer Edition 1.18+ |
 | ArcGIS JS API      | 4.29                    |
 | React              | 18.3.1                  |
 | TanStack Query     | v5.90                   |
 | FME Flow API       | v4                      |
 | Webbkarta          | Krävs för AOI‑ritning   |
+
+---
+
+## Snabbstart
+
+1. **Forka & klona** – skapa en egen fork och kör `git clone <din fork>`.
+2. **Installera** – flytta widgetmappen till `client/your-extensions/widgets/`, kör `npm ci` i `client/` och installera `@tanstack/react-query`.
+3. **Starta utveckling** – kör `npm start` för Experience Builder och (valfritt) `npm start` i `server/` för mockad backend.
+4. **Konfigurera** – lägg till widgeten i layouten, koppla en webbkarta, fyll i FME‑inställningar och klicka **Testa anslutning**.
 
 ---
 
@@ -81,17 +91,15 @@ Widgeten erbjuder följande funktioner:
 
 För att använda widgeten behöver du följande:
 
-- **Experience Builder:** Developer Edition 1.14 eller senare
-- **ArcGIS Maps SDK for JavaScript:** 4.27 eller senare
+- **Experience Builder:** Developer Edition 1.18 eller senare
+- **ArcGIS Maps SDK for JavaScript:** 4.29 eller senare
 - **FME Flow:** Server med REST‑API v4 aktiverat
 - **Webbkarta:** krävs i Experience Builder‑appen för att kunna rita område
 - **React Query:** `@tanstack/react-query` (installeras via npm)
 
 ### Installationssteg
 
-Följ dessa steg för att installera widgeten i din egen Experience Builder‑app. Vi
-använder `git` och `npm` i exemplen. Använd numrerade listor med `1.` för
-samtliga punkter; Markdown numrerar automatiskt【164258795548005†L318-L343】.
+Följ dessa steg för att installera widgeten i din egen Experience Builder‑app. Exemplen använder `git` och `npm`.
 
 1. **Hämta källkoden** – forka repositoryt och klona din fork:
 
@@ -99,8 +107,7 @@ samtliga punkter; Markdown numrerar automatiskt【164258795548005†L318-L343】
    git clone https://github.com/DITT-ANVÄNDARNAMN/fme-export-widget.git
    ```
 
-2. **Installera widgeten** – kopiera mappen till
-   `client/your-extensions/widgets/` och installera paket:
+2. **Installera widgeten** – kopiera mappen till `client/your-extensions/widgets/` och installera paket:
 
    ```bash
    cd client
@@ -118,11 +125,15 @@ samtliga punkter; Markdown numrerar automatiskt【164258795548005†L318-L343】
    npm run build:prod
    ```
 
-4. **Konfigurera i Experience Builder** – lägg till widgeten i layouten,
-   välj en webbkarta, ange FME‑inställningar och tryck **Testa anslutning**.
+4. **Konfigurera i Experience Builder** – lägg till widgeten i layouten, välj en webbkarta, ange FME‑inställningar och tryck **Testa anslutning**.
 
-Tips: widgeten kan även installeras direkt i ArcGIS Enterprise/Online via
-manifestet `https://j0hanz.github.io/fme-export-widget/manifest.json`.
+### Vanliga installationsfrågor
+
+- **Varför två npm-installationer?** `client/` innehåller Experience Builders beroenden medan `server/` bara krävs om du kör den mockade testservern.
+- **Måste jag använda `npm ci`?** Rekommenderas för reproducerbara byggen, men `npm install` fungerar om du behöver uppdatera beroenden.
+- **Hur verifierar jag innan publicering?** Kör `npm run build:dev` för att säkerställa att bundlingen lyckas och att importerna är korrekt konfigurerade.
+
+> **Tips:** Du kan även installera widgeten direkt i ArcGIS Enterprise/Online via manifestet `https://j0hanz.github.io/fme-export-widget/manifest.json`.
 
 ---
 
