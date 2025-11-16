@@ -17,12 +17,23 @@ Denna widget integrerar **FME Flow** i **ArcGIS Experience Builder** med ett fä
 
 ---
 
+## Nerladdning
+
+Välj version baserat på din FME Flow-miljö. Observera att v3 inte längre underhålls.
+
+| Version | Målmiljö    | Nedladdning                                                                                         |
+| ------- | ----------- | --------------------------------------------------------------------------------------------------- |
+| v1.1    | FME Flow v4 | [📦 Ladda ned](https://github.com/j0hanz/fme-export-widget/releases/download/v1.1/fme-export.zip)   |
+| v1.0‑V3 | FME Flow v3 | [📦 Ladda ned](https://github.com/j0hanz/fme-export-widget/releases/download/1.0-V3/fme-export.zip) |
+
+---
+
 ## Innehåll
 
 1. [Om widgeten](#om-widgeten)
+1. [Nerladdning](#nerladdning)
 1. [Snabböversikt](#snabböversikt)
 1. [Snabbstart](#snabbstart)
-1. [Distribution](#distribution)
 1. [Funktioner](#funktioner)
 1. [Installation](#installation)
    1. [Systemkrav](#systemkrav)
@@ -74,24 +85,13 @@ Denna widget integrerar **FME Flow** i **ArcGIS Experience Builder** med ett fä
 
 ---
 
-## Distribution
-
-Välj version baserat på din FME Flow-miljö. Observera att v3 inte längre underhålls.
-
-| Version | Målmiljö    | Nedladdning                                                                                      |
-| ------- | ----------- | ------------------------------------------------------------------------------------------------ |
-| v1.1    | FME Flow v4 | [Ladda ned](https://github.com/j0hanz/fme-export-widget/releases/download/v1.1/fme-export.zip)   |
-| v1.0‑V3 | FME Flow v3 | [Ladda ned](https://github.com/j0hanz/fme-export-widget/releases/download/1.0-V3/fme-export.zip) |
-
----
-
 ## Funktioner
 
 Widgeten tillhandahåller följande funktionalitet:
 
 | Funktion               | Beskrivning                                                      |
 | ---------------------- | ---------------------------------------------------------------- |
-| **AOI‑ritning**        | Rita polygoner och rektanglar med automatisk areanvalidering     |
+| **AOI‑ritning**        | Rita din exportyta – polygon eller rektangel                     |
 | **Dynamiska formulär** | Formulär genereras automatiskt från workspace‑parametrar         |
 | **Flexibel körning**   | Välj mellan sync (direkt nedladdning) och async (e‑postleverans) |
 | **Säker hantering**    | Token‑autentisering, HTTPS‑validering och maskerad loggning      |
@@ -467,11 +467,8 @@ window.__FME_DEBUG__ = {
 
 ## Support och resurser
 
-### Community
-
-- 💬 **Diskussioner och frågor** – [GitHub Discussions](https://github.com/j0hanz/fme-export-widget/discussions)
-- 🐛 **Buggrapporter och förslag** – [GitHub Issues](https://github.com/j0hanz/fme-export-widget/issues)
-- 📊 **Presentation** – [FME Användarträff 2025](https://github.com/user-attachments/files/23019353/FMEAnvandartraff2025.pdf)
+- **Buggrapporter och förslag** – [GitHub Issues](https://github.com/j0hanz/fme-export-widget/issues)
+- **Presentation** – [FME Användarträff 2025](https://github.com/user-attachments/files/23019353/FMEAnvandartraff2025.pdf)
 
 ### Dokumentation
 
@@ -483,8 +480,4 @@ window.__FME_DEBUG__ = {
 
 ---
 
----
-
-Made with ❤️ for the ArcGIS and FME communities
-
-[⬆ Tillbaka till toppen](#fme-export-widget)
+[🔝 Tillbaka till toppen](#fme-export-widget)
