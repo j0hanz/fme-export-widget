@@ -8,23 +8,23 @@
 
 ## Snabböversikt
 
-| Komponent          | Krav / Version                           |
+| Komponent          | Version / Krav                           |
 | ------------------ | ---------------------------------------- |
 | Experience Builder | Developer Edition 1.14+                  |
-| ArcGIS JS API      | 4.29 (laddas via `loadArcgisModules`)    |
+| ArcGIS JS API      | 4.29                                     |
 | React              | 18.3.1                                   |
-| TanStack Query     | v5 (React Query 5.90)                    |
-| FME Flow API       | REST API v4 med giltig token             |
-| Webbkarta          | Obligatorisk (Polygon/Rectangle sketch)  |
+| TanStack Query     | v5.90                                    |
+| FME Flow API       | v4 med giltig token                      |
+| Webbkarta          | Krävs för AOI-ritning                    |
 | State              | Redux (Seamless Immutable) + React Query |
 
 ---
 
 ## Översikt
 
-Integrera FME Flow direkt i ArcGIS Experience Builder. Användare exporterar data genom att rita ett område i kartan och fylla i ett formulär. Resultatet levereras direkt via nedladdning eller e-post – utan krav på FME-kunskaper.
+Integrera FME Flow i ArcGIS Experience Builder. Användare ritar område, fyller i formulär och får data via nedladdning eller e-post – utan FME-kunskaper.
 
-**Målgrupp:** Organisationer som använder FME Flow och vill erbjuda webbaserad dataexport utan egen utveckling.
+**Målgrupp:** Organisationer som vill erbjuda webbaserad FME Flow-export utan egen utveckling.
 
 ---
 
@@ -40,6 +40,7 @@ Integrera FME Flow direkt i ArcGIS Experience Builder. Användare exporterar dat
 - [Konfiguration](#konfiguration)
 - [Arkitektur](#arkitektur)
 - [Utveckling](#utveckling)
+- [Vanliga frågor (FAQ)](#vanliga-frågor-faq)
 - [Bidra till projektet](#bidra-till-projektet)
 - [Felkoder](#felkoder)
 - [Support och resurser](#support-och-resurser)
@@ -76,13 +77,13 @@ Välj version baserat på din FME Flow-miljö:
 
 ## Funktioner
 
-| Funktion                   | Värde för användaren                                                    |
-| -------------------------- | ----------------------------------------------------------------------- |
-| Area of Interest (AOI)     | Rita polygoner/rektanglar med automatisk ytkontroll och varningar       |
-| Dynamiska formulär         | Parameterfält genereras från vald workspace utan manuell konfigurering  |
-| Flexibel körning           | Direktnedladdning eller asynkron leverans via e-post/webhook            |
-| Säker hantering            | Token-autentisering, HTTPS-validering, maskerade loggar, sanerad indata |
-| Användarvänligt gränssnitt | Tydligt arbetsflöde, realtidsvalidering och stödtexter                  |
+| Funktion                   | Beskrivning                                             |
+| -------------------------- | ------------------------------------------------------- |
+| Area of Interest (AOI)     | Rita områden med automatisk ytkontroll och varningar    |
+| Dynamiska formulär         | Genereras automatiskt från workspace-parametrar         |
+| Flexibel körning           | Sync (direktnedladdning) eller async (e-post/webhook)   |
+| Säker hantering            | Token-autentisering, HTTPS-validering, maskerade loggar |
+| Användarvänligt gränssnitt | Tydligt arbetsflöde med realtidsvalidering              |
 
 ---
 
@@ -114,15 +115,15 @@ Alternativt kan widgeten läggas till direkt i ArcGIS Enterprise/Online via mani
 
 ## Användning
 
-> **Widget Controller-rekommendation:** FME Export är optimerad för att ligga i en Widget Controller där flera widgets kan samexistera utan konflikt. Om du väljer att placera den direkt på sidan utan controller bör den vara den enda aktiva widgeten, annars riskerar andra widgets att ta över kartresurser eller nollställa sessionen mitt i ett flöde.
+> **Widget Controller:** Rekommenderas starkt för att isolera kartresurser. Utan controller kan andra widgets störa ritflödet.
 
-Enkelt arbetsflöde för slutanvändare:
+**Arbetsflöde:**
 
-1. **Rita område** – Markera intresseområde i kartan
-2. **Välj process** – Välj FME-workspace från listan
-3. **Ange parametrar** – Fyll i det genererade formuläret
-4. **Välj leverans** – Direktnedladdning eller e-postlänk
-5. **Skicka** – Starta exporten
+1. **Rita område** – Markera intresseområde
+2. **Välj workspace** – Välj FME-process
+3. **Ange parametrar** – Fyll i formulär
+4. **Välj leverans** – Sync eller async
+5. **Skicka** – Starta export
 
 ---
 
@@ -367,10 +368,38 @@ window.__FME_DEBUG__ = {
 
 ---
 
+## Vanliga frågor (FAQ)
+
+| Fråga                                    | Svar                                                                                                              | Ref               |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Hur kopplas kartan?                      | Koppla widgeten till kartwidget. `JimuMapViewComponent` skapar automatiskt `GraphicsLayer` + `SketchViewModel`.   | `widget.tsx`      |
+| Vilka FME-fält krävs?                    | Server-URL, API-token, repository. Testa anslutning innan du sparar.                                              | `setting.tsx`     |
+| Hur skyddas token?                       | Token krypteras av Experience Builder. Loggar maskeras via `maskToken`.                                           | `logging.ts`      |
+| Vad händer med stora AOI?                | Geometrin förenklas, arean beräknas. Jobb över `maxArea` stoppas. Varning vid stora ytor.                         | `drawing.ts`      |
+| Stöds async-jobb?                        | Ja. Sync = direkt nedladdning (max 5 min). Async = e-post (kräver giltig adress).                                 | `submission.ts`   |
+| Hur felsöker jag?                        | Aktivera loggning i Builder eller kör `window.__FME_DEBUG__`. Läs felkoder + FME Flow jobbloggar.                 | `validation.ts`   |
+| Kan jag anpassa formulärfält?            | Ja. Utöka `ParameterFormService` eller `fields.tsx`. Håll config immutabel.                                       | `parameters.ts`   |
+| Ska widgeten ligga i Widget Controller?  | Starkt rekommenderat. Isolerar kartresurser och förhindrar konflikter.                                            | `widget.tsx`      |
+| Hur fungerar React Query-caching?        | Cachar workspace-listor i 5-10 min. Minskar API-anrop, invalideras automatiskt.                                   | `query-client.ts` |
+| Sync vs async – skillnad?                | Sync = direkt (max 5 min), ingen e-post. Async = köad (e-post), stödjer längre processer.                         | `fme.ts`          |
+| Hur fungerar fjärrdataset?               | Användare anger HTTPS-URL. Laddas tillfälligt till Temp-connection. Kräver publicerad parameter.                  | `dataset.ts`      |
+| Varför "saknar parameter för fjärrdata"? | Workspace saknar publicerad parameter (default `DEST_DATASET`). Lägg till eller stäng av `allowRemoteDatasetUrl`. | `constants.ts`    |
+| Kan flera användare rita samtidigt?      | Ja, state är widget-scoped. Endast en widget aktiv i kartan åt gången.                                            | `store.ts`        |
+| Hur förhindras stora/långsamma exporter? | `maxAreaM2` stoppar, `largeAreaWarningM2` varnar, `tm_ttc`/`tm_ttl` timeout avbryter.                             | `drawing.ts`      |
+| Vad händer vid stängning mitt i jobb?    | Cleanup: requests avbryts, kartlager rensas, sketch stoppas, state tas bort. Serverjobb fortsätter.               | `hooks.ts`        |
+| Vad händer vid minimering?               | State bevaras. Inget avbryts. Fortsätt där du slutade – AOI, formulär och resultat finns kvar.                    | `store.ts`        |
+
+> **Säkerhetscheck:** När loggning aktiveras, följ `Change Checklist → Secrets masked in logs` och anonymisera alltid parametrar via `safeLogParams` och tokens via `maskToken` innan loggar delas.
+
+---
+
 ## Support och resurser
 
 - **Frågor och diskussioner** – [GitHub Discussions](https://github.com/j0hanz/fme-export-widget/discussions)
 - **Buggrapporter och förslag** – [GitHub Issues](https://github.com/j0hanz/fme-export-widget/issues)
-- **FME Flow REST API** – [Dokumentation](https://docs.safe.com/fme/html/fmeapiv4/docs/index.html)
-- **Experience Builder SDK** – [Dokumentation](https://developers.arcgis.com/experience-builder/)
 - **Presentation** – [FME Användarträff 2025](https://github.com/user-attachments/files/23019353/FMEAnvandartraff2025.pdf)
+- **ArcGIS Experience Builder** – [Dokumentation](https://developers.arcgis.com/experience-builder/)
+- **ArcGIS JS API** – [Dokumentation](https://developers.arcgis.com/javascript/latest/)
+- **FME Flow REST API** – [Dokumentation](https://docs.safe.com/fme/html/fmeapiv4/docs/index.html)
+- **React** – [Dokumentation](https://react.dev/)
+- **TanStack Query** – [Dokumentation](https://tanstack.com/query/latest)
