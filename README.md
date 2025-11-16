@@ -8,15 +8,14 @@
 
 ## Snabböversikt
 
-| Komponent          | Version / Krav                           |
-| ------------------ | ---------------------------------------- |
-| Experience Builder | Developer Edition 1.14+                  |
-| ArcGIS JS API      | 4.29                                     |
-| React              | 18.3.1                                   |
-| TanStack Query     | v5.90                                    |
-| FME Flow API       | v4 med giltig token                      |
-| Webbkarta          | Krävs för AOI-ritning                    |
-| State              | Redux (Seamless Immutable) + React Query |
+| Komponent          | Version / Krav          |
+| ------------------ | ----------------------- |
+| Experience Builder | Developer Edition 1.14+ |
+| ArcGIS JS API      | 4.29                    |
+| React              | 18.3.1                  |
+| TanStack Query     | v5.90                   |
+| FME Flow API       | v4                      |
+| Webbkarta          | Krävs för AOI-ritning   |
 
 ---
 
@@ -41,7 +40,7 @@ Integrera FME Flow i ArcGIS Experience Builder. Användare ritar område, fyller
 - [Arkitektur](#arkitektur)
 - [Utveckling](#utveckling)
 - [Vanliga frågor (FAQ)](#vanliga-frågor-faq)
-- [Bidra till projektet](#bidra-till-projektet)
+- [Kom igång med din egen widget](#kom-igång-med-din-egen-widget)
 - [Felkoder](#felkoder)
 - [Support och resurser](#support-och-resurser)
 
@@ -58,7 +57,7 @@ Snabb guide till de vanligaste ämnena:
 | React Query & data     | [Snabböversikt](#snabböversikt) · [Arkitektur](#arkitektur) · [Utveckling](#utveckling)                                                    | behöver förstå cache och datahämtning                  |
 | Builder-konfiguration  | [Konfiguration](#konfiguration) · [Jobbhantering](#jobbhantering) · [Filhantering](#filhantering)                                          | justerar inställningar i Experience Builder            |
 | Loggning & felsökning  | [Säkerhet & Meddelanden](#säkerhet--meddelanden) · [Felsökning](#felsökning) · [Felkoder](#felkoder)                                       | samlar loggar eller tolkar felmeddelanden              |
-| Distribution & install | [Distribution](#distribution) · [Installation](#installation) · [Bidra till projektet](#bidra-till-projektet)                              | väljer version, installerar eller delar kod            |
+| Distribution & install | [Distribution](#distribution) · [Installation](#installation) · [Kom igång](#kom-igång-med-din-egen-widget)                 | väljer version, installerar eller forkar widget        |
 | Arkitektur & services  | [Arkitektur](#arkitektur) · [Tillståndshantering](#arkitektur) · [Katalogstruktur](#katalogstruktur)                                       | ska förstå hur widgeten är uppbyggd                    |
 | Support & resurser     | [Support och resurser](#support-och-resurser) · [Felöversikt](#felkoder) · [Utveckling](#utveckling)                                       | behöver mer dokumentation eller vill rapportera ärende |
 
@@ -214,40 +213,74 @@ src/
 5. **Skicka jobb** – Orchestrerar AOI-attach, parametrar och submission
 6. **Resultat** – Hanterar nedladdning eller e-postleverans
 
+### AOI-jobbflöde
+
+| Nod                              | Widgetsteg                                                  | API-anrop                                          | Resultat                                                                            |
+| -------------------------------- | ----------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Validate Config                  | `runStartupValidationFlow`, `validateWidgetStartup`         | Health/connection endpoints via `FmeFlowApiClient` | Fel leder till **Show Error**, annars fortsätt.                                     |
+| Draw AOI                         | `processDrawingCompletion`, `attachAoi`                     | -                                                  | AOI sparas i Redux, area kontrolleras.                                              |
+| Configure Workspace & Parameters | `useWorkspaces`, `useWorkspaceItem`, `ParameterFormService` | `GET /repositories/{repo}/items/{workspace}`       | Workspacen väljs, parameterdefinitioner cachas och formulärvärden valideras lokalt. |
+| Submit Job · FME Flow API        | `executeJobSubmission`, `prepareSubmissionParams`           | `POST /jobs` eller `POST /jobs/submit`             | FME Flow-jobb skapas och mode (sync/async) bestäms.                                 |
+| Monitor Execution                | `buildSubmissionSuccessResult`, React Query polling         | `GET /jobs/{id}`, `GET /jobs/{id}/result`          | Resultatlänkar hämtas, status uppdateras och notifieringar triggas.                 |
+| Sync-gren                        | `handleDirectDownload`                                      | `GET /jobs/{id}/result/files/{fileId}`             | Filer laddas direkt.                                                                |
+| Async-gren                       | `publishJobCompletionMessage`, e-postmaskering              | FME:s notifieringsendpoints                        | Användaren får e-post/webhook när jobbet är klart.                                  |
+
 ---
 
-## Bidra till projektet
+## Kom igång med din egen widget
 
-### Utvecklingsflöde
+### Forka och anpassa
 
-1. **Forka & klona** – Skapa egen fork för anpassningar
-2. **Branch-namn** – Prefix `feature/`, `fix/`, `docs/`
-3. **Kodstil** – Single quotes, inga semicolons, Emotion CSS-in-JS
-4. **Commits** – Conventional Commits-format
+Denna widget är designad för att **forkas och ägas av dig**. När du forkar skapar du din egen version som du har full kontroll över – anpassa, vidareutveckla och underhåll efter dina behov. Huvudrepositoryt fungerar som startpunkt och referens, men din fork är självständig.
 
-### Testkrav
+**Detta är inte ett traditionellt open source-projekt med bidrag** – det är en grund för din egen lösning.
 
-- Placera tester i `src/tests/` eller som `*.test.ts(x)` bredvid källkoden
-- Använd Jest + React Testing Library (`jimu-for-test`)
-- Mocka ArcGIS-moduler med `__ESRI_TEST_STUB__`
-- Stubba nätverksanrop och FME Flow-endpoints
-- Kör `npm run test` innan du skickar in ändringar
+### Installation och anpassning
 
-### Checklista innan PR
+1. **Forka repositoryt** – Skapa din egen kopia på GitHub som du äger
 
-- [ ] `npm run lint` går igenom
-- [ ] `npm run type-check` går igenom
-- [ ] `npm run test` går igenom
-- [ ] Översättningar uppdaterade (Svenska/Engelska)
-- [ ] Token-maskning tillämpat i loggar
-- [ ] Config-sanering implementerad
+2. **Klona din fork** till din lokala maskin:
 
-### Pull Request
+   ```bash
+   git clone https://github.com/DITT-ANVÄNDARNAMN/fme-export-widget.git
+   ```
 
-1. Beskriv ändringar och syfte
-2. Bifoga skärmdumpar vid UI-ändringar
-3. Referera relaterade issues
-4. Invänta review och CI-kontroller
+3. **Installera beroenden**:
+
+   ```bash
+   cd client
+   npm ci
+   npm install @tanstack/react-query
+   ```
+
+4. **Starta utvecklingsmiljön**:
+
+   ```bash
+   npm start  # Utvecklingsserver med hot-reload
+   ```
+
+5. **Testa lokalt** (valfritt):
+
+   ```bash
+   cd server
+   npm ci
+   npm start  # Lokal FME Flow-testserver
+   ```
+
+6. **Bygg för driftsättning**:
+
+   ```bash
+   npm run build:prod              # Produktionsbygge
+   npm run build:for-download      # Distribution (v1.18+)
+   ```
+
+### Din widget, dina regler
+
+- Anpassa funktionalitet efter dina FME-workspaces
+- Ändra användargränssnitt och styling
+- Integrera med era interna system
+- Underhåll och vidareutveckla oberoende
+- Dela med andra i din organisation
 
 ---
 
