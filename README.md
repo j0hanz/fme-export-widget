@@ -50,16 +50,16 @@ Integrera FME Flow direkt i ArcGIS Experience Builder. Användare exporterar dat
 
 Snabb guide till de vanligaste ämnena:
 
-| Nyckelord              | Huvudavsnitt                                                                                                                                                                   | Använd när du...                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
-| AOI & geometri         | [Användning](#användning) · [Geometri & Validering](#geometri--validering) · [Felkoder: Geometri](#geometri-och-ritning)                                                         | ritar område, tolkar maxyta eller felsöker ritningsfel |
-| FME Flow & token       | [Systemkrav](#systemkrav) · [FME Flow Server](#fme-flow-server) · [Säkerhet & Meddelanden](#säkerhet--meddelanden) · [Felkoder](#felkoder)                                      | kopplar mot servern, hanterar HTTPS eller token        |
-| React Query & data     | [Snabböversikt](#snabböversikt) · [Arkitektur](#arkitektur) · [Utveckling](#utveckling)                                                                                         | behöver förstå cache och datahämtning                  |
-| Builder-konfiguration  | [Konfiguration](#konfiguration) · [Jobbhantering](#jobbhantering) · [Filhantering](#filhantering)                                                                               | justerar inställningar i Experience Builder            |
-| Loggning & felsökning  | [Säkerhet & Meddelanden](#säkerhet--meddelanden) · [Felsökning](#felsökning) · [Felkoder](#felkoder)                                                                            | samlar loggar eller tolkar felmeddelanden              |
-| Distribution & install | [Distribution](#distribution) · [Installation](#installation) · [Bidra till projektet](#bidra-till-projektet)                                                                    | väljer version, installerar eller delar kod            |
-| Arkitektur & services  | [Arkitektur](#arkitektur) · [Tillståndshantering](#arkitektur) · [Katalogstruktur](#katalogstruktur)                                                                            | ska förstå hur widgeten är uppbyggd                    |
-| Support & resurser     | [Support och resurser](#support-och-resurser) · [Felöversikt](#felkoder) · [Utveckling](#utveckling)                                                                             | behöver mer dokumentation eller vill rapportera ärende |
+| Nyckelord              | Huvudavsnitt                                                                                                                               | Använd när du...                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| AOI & geometri         | [Användning](#användning) · [Geometri & Validering](#geometri--validering) · [Felkoder: Geometri](#geometri-och-ritning)                   | ritar område, tolkar maxyta eller felsöker ritningsfel |
+| FME Flow & token       | [Systemkrav](#systemkrav) · [FME Flow Server](#fme-flow-server) · [Säkerhet & Meddelanden](#säkerhet--meddelanden) · [Felkoder](#felkoder) | kopplar mot servern, hanterar HTTPS eller token        |
+| React Query & data     | [Snabböversikt](#snabböversikt) · [Arkitektur](#arkitektur) · [Utveckling](#utveckling)                                                    | behöver förstå cache och datahämtning                  |
+| Builder-konfiguration  | [Konfiguration](#konfiguration) · [Jobbhantering](#jobbhantering) · [Filhantering](#filhantering)                                          | justerar inställningar i Experience Builder            |
+| Loggning & felsökning  | [Säkerhet & Meddelanden](#säkerhet--meddelanden) · [Felsökning](#felsökning) · [Felkoder](#felkoder)                                       | samlar loggar eller tolkar felmeddelanden              |
+| Distribution & install | [Distribution](#distribution) · [Installation](#installation) · [Bidra till projektet](#bidra-till-projektet)                              | väljer version, installerar eller delar kod            |
+| Arkitektur & services  | [Arkitektur](#arkitektur) · [Tillståndshantering](#arkitektur) · [Katalogstruktur](#katalogstruktur)                                       | ska förstå hur widgeten är uppbyggd                    |
+| Support & resurser     | [Support och resurser](#support-och-resurser) · [Felöversikt](#felkoder) · [Utveckling](#utveckling)                                       | behöver mer dokumentation eller vill rapportera ärende |
 
 ---
 
