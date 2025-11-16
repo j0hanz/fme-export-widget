@@ -1,143 +1,241 @@
 # FME Export Widget
 
-[![GitHub release](https://img.shields.io/github/v/release/j0hanz/fme-export-widget)](https://github.com/j0hanz/fme-export-widget/releases/latest)
-[![FME Flow](https://img.shields.io/badge/FME%20Flow%20API-V4-orange.svg)](https://docs.safe.com/fme/html/fmeapiv4/docs/index.html)
+[![GitHub release](https://img.shields.io/github/v/release/j0hanz/fme-export-widget?label=Version)](https://github.com/j0hanz/fme-export-widget/releases/latest)[![GitHub last commit](https://img.shields.io/github/last-commit/j0hanz/fme-export-widget?label=Updated)](https://github.com/j0hanz/fme-export-widget/commits)[![GitHub code size](https://img.shields.io/github/languages/code-size/j0hanz/fme-export-widget?label=Size)](https://github.com/j0hanz/fme-export-widget)[![FME Flow](https://img.shields.io/badge/FME%20Flow%20API-V4-orange.svg?label=FME-Flow)](https://docs.safe.com/fme/html/fmeapiv4/docs/index.html)
+[![React 18.3.1](https://img.shields.io/badge/React-18.3.1-61DAFB.png?logo=react&logoColor=000000&style=flat)](https://react.dev/)[![ArcGIS Experience Builder](https://img.shields.io/badge/ArcGIS-Experience%20Builder-2C7CBE.png?logo=arcgis&logoColor=ffffff&style=flat)](https://developers.arcgis.com/experience-builder/)[![ArcGIS JS API](https://img.shields.io/badge/ArcGIS%20JS%20API-4.29-0176D2.png?logo=arcgis&logoColor=ffffff&style=flat)](https://developers.arcgis.com/javascript/latest/)[![TanStack Query](https://img.shields.io/badge/TanStack%20Query-v5-FF4154.png?logo=reactquery&logoColor=ffffff&style=flat)](https://tanstack.com/query/latest)
+[![GitHub stars](https://img.shields.io/github/stars/j0hanz/fme-export-widget)](https://github.com/j0hanz/fme-export-widget/stargazers)[![GitHub forks](https://img.shields.io/github/forks/j0hanz/fme-export-widget)](https://github.com/j0hanz/fme-export-widget/network/members)[![GitHub issues](https://img.shields.io/github/issues/j0hanz/fme-export-widget)](https://github.com/j0hanz/fme-export-widget/issues)[![GitHub pull requests](https://img.shields.io/github/issues-pr/j0hanz/fme-export-widget)](https://github.com/j0hanz/fme-export-widget/pulls)[![GitHub contributors](https://img.shields.io/github/contributors/j0hanz/fme-export-widget?color=2b9348)](https://github.com/j0hanz/fme-export-widget/graphs/contributors)
 
-Widget för ArcGIS Experience Builder som möjliggör självbetjäning av geodata via FME Flow. Användaren ritar ett område, väljer en FME-process (workspace), fyller i parametrar och får resultatet levererat automatiskt. Nya exporttyper blir omedelbart tillgängliga för användaren utan behov av omkonfiguration.
+---
+
+## Snabböversikt
+
+| Komponent          | Krav / Version                           |
+| ------------------ | ---------------------------------------- |
+| Experience Builder | Developer Edition 1.14+                  |
+| ArcGIS JS API      | 4.29 (laddas via `loadArcgisModules`)    |
+| React              | 18.3.1                                   |
+| TanStack Query     | v5 (React Query 5.90)                    |
+| FME Flow API       | REST API v4 med giltig token             |
+| Webbkarta          | Obligatorisk (Polygon/Rectangle sketch)  |
+| State              | Redux (Seamless Immutable) + React Query |
+
+---
+
+## Översikt
+
+Integrera FME Flow direkt i ArcGIS Experience Builder. Användare exporterar data genom att rita ett område i kartan och fylla i ett formulär. Resultatet levereras direkt via nedladdning eller e-post – utan krav på FME-kunskaper.
+
+**Målgrupp:** Organisationer som använder FME Flow och vill erbjuda webbaserad dataexport utan egen utveckling.
+
+---
+
+## Innehåll
+
+- [Översikt](#översikt)
+- [Distribution](#distribution)
+- [Funktioner](#funktioner)
+- [Installation](#installation)
+  - [Systemkrav](#systemkrav)
+  - [Installationssteg](#installationssteg)
+- [Användning](#användning)
+- [Konfiguration](#konfiguration)
+- [Arkitektur](#arkitektur)
+- [Utveckling](#utveckling)
+- [Bidra till projektet](#bidra-till-projektet)
+- [Felkoder](#felkoder)
+- [Support och resurser](#support-och-resurser)
+
+---
+
+## Distribution
+
+Välj version baserat på din FME Flow-miljö:
+
+| Version | Målmiljö    | Nedladdning                                                                                      | Status        |
+| ------- | ----------- | ------------------------------------------------------------------------------------------------ | ------------- |
+| v1.1    | FME Flow v4 | [Ladda ned](https://github.com/j0hanz/fme-export-widget/releases/download/v1.1/fme-export.zip)   | Rekommenderad |
+| v1.0-V3 | FME Flow v3 | [Ladda ned](https://github.com/j0hanz/fme-export-widget/releases/download/1.0-V3/fme-export.zip) | Legacy        |
+
+---
 
 ## Funktioner
 
-- **Intresseområde (AOI):** Rita polygoner eller rektanglar med automatisk ytkontroll.
-- **Dynamiska formulär:** Parametrar för text, nummer, val, filer och geometri genereras automatiskt från vald FME-process.
-- **Flexibel körning:** Stöd för både synkron nedladdning (direkt i webbläsaren) och asynkron leverans via e-post för tidskrävande jobb.
-- **Säker hantering:** Byggd med säkerhet i fokus, inklusive token-autentisering, HTTPS-validering, maskerade loggar och sanerad indata.
-- **Användarstöd:** Inbyggd felhantering och möjlighet att visa anpassade supportmeddelanden.
+| Funktion                   | Värde för användaren                                                    |
+| -------------------------- | ----------------------------------------------------------------------- |
+| Area of Interest (AOI)     | Rita polygoner/rektanglar med automatisk ytkontroll och varningar       |
+| Dynamiska formulär         | Parameterfält genereras från vald workspace utan manuell konfigurering  |
+| Flexibel körning           | Direktnedladdning eller asynkron leverans via e-post/webhook            |
+| Säker hantering            | Token-autentisering, HTTPS-validering, maskerade loggar, sanerad indata |
+| Användarvänligt gränssnitt | Tydligt arbetsflöde, realtidsvalidering och stödtexter                  |
+
+---
 
 ## Installation
-
-Följ dessa steg för att installera och konfigurera widgeten. För grundläggande instruktioner, se Esris [installationsguide för Experience Builder](https://developers.arcgis.com/experience-builder/guide/install-guide/).
 
 ### Systemkrav
 
 - **Experience Builder:** Developer Edition 1.14+
 - **ArcGIS Maps SDK for JavaScript:** 4.27+
-- **FME Flow:** Server med REST API v4 aktiverat.
-- **Webbkarta:** Krävs i Experience Builder-applikationen för att kunna rita område.
-- **React Query:** `@tanstack/react-query` (installeras via npm).
+- **FME Flow:** Server med REST API v4 aktiverat
+- **Webbkarta:** Krävs i Experience Builder-applikationen för att kunna rita område
+- **React Query:** `@tanstack/react-query` (installeras via npm)
 
-### 1. Hämta källkoden
+### Installationssteg
 
-För att kunna anpassa och underhålla din egen version av widgeten rekommenderas det att du först skapar en "fork" av detta repository till ditt eget GitHub-konto. Klona sedan din forkade version.
+| Steg                                | Aktivitet                                                                   | Kommandon / Detaljer                                                   |
+| ----------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 1. Hämta källkoden                  | Forka repositoryt och klona din fork                                        | `git clone https://github.com/DITT-ANVÄNDARNAMN/fme-export-widget.git` |
+| 2. Installera widgeten              | Kopiera mappen till `client/your-extensions/widgets/` och installera paket  | `cd client && npm ci && npm install @tanstack/react-query`             |
+| 3. Bygg widgeten                    | Skapa produktion/utvecklingsbygge                                           | `npm run build:prod` eller `npm start`                                 |
+| 4. Konfigurera i Experience Builder | Lägg till widgeten, välj webbkarta, ange FME-inställningar, testa och spara | Ange server-URL, API-token, repository och kör "Testa anslutning"      |
 
-```bash
-git clone https://github.com/DITT-ANVÄNDARNAMN/fme-export-widget.git
-```
-
-### 2. Installera widgeten
-
-Kopiera widget-mappen till din Experience Builder-installation och installera nödvändiga paket.
-
-```bash
-# Navigera till din Experience Builder-katalog
-cd /path/to/arcgis-experience-builder-sdk
-
-# Kopiera widgeten
-cp -r /path/to/fme-export-widget/fme-export client/your-extensions/widgets/
-
-# Installera beroenden
-cd client
-npm ci
-npm install @tanstack/react-query
-```
-
-### 3. Bygg widgeten
-
-Kompilera widgeten för att göra den tillgänglig i Experience Builder.
-
-```bash
-# Bygg för produktion (rekommenderas)
-npm run build:prod
-
-# Eller starta i utvecklingsläge med automatisk omladdning
-npm start
-```
-
-### 4. Konfigurera i Experience Builder
-
-Slutför konfigurationen i Experience Builder-gränssnittet.
-
-1. **Lägg till widgeten** i din applikation.
-2. **Välj en webbkarta** som widgeten ska kopplas till.
-3. **Ange FME Flow-inställningar:**
-   - Server-URL (t.ex. `https://fmeflow.exempel.se`)
-   - API-token med nödvändiga behörigheter.
-   - Välj det repository där dina FME-processer finns.
-4. **Testa anslutningen** för att verifiera att allt fungerar.
-5. **Spara** konfigurationen.
+**Tips:** Lägg till widgeten i layouten, välj kartkälla, fyll i FME-inställningar, tryck på _Testa anslutning_ och spara konfigurationen.
 
 Alternativt kan widgeten läggas till direkt i ArcGIS Enterprise/Online via manifest-filen:
 `https://j0hanz.github.io/fme-export-widget/manifest.json`
 
+---
+
 ## Användning
 
-Arbetsflödet för slutanvändaren är enkelt och intuitivt:
+Enkelt arbetsflöde för slutanvändare:
 
-1. **Rita område:** Välj ritverktyg och markera ett intresseområde i kartan.
-2. **Välj export:** Välj önskad FME-process från listan.
-3. **Ange parametrar:** Fyll i det dynamiskt genererade formuläret.
-4. **Välj leverans:** Ladda ner direkt eller få en länk via e-post.
-5. **Skicka:** Starta exporten och invänta resultatet.
+1. **Rita område** – Markera intresseområde i kartan
+2. **Välj process** – Välj FME-workspace från listan
+3. **Ange parametrar** – Fyll i det genererade formuläret
+4. **Välj leverans** – Direktnedladdning eller e-postlänk
+5. **Skicka** – Starta exporten
+
+---
 
 ## Konfiguration
 
-Widgeten erbjuder en rad inställningar för att anpassa funktionalitet och säkerhet. Alla inställningar görs i Experience Builders admin-gränssnitt.
+Konfigurera funktionalitet och säkerhet via Experience Builders administrationsgränssnitt.
 
-| Inställning                | Beskrivning                                                                                                           |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **FME Flow Server**        |                                                                                                                       |
-| Server-URL                 | Adress till FME Flow, t.ex. `https://fmeflow.exempel.se`.                                                             |
-| API-token                  | Token från FME Flow med behörighet för att läsa repositories och köra jobb.                                           |
-| Repository                 | Namnet på det repository där publicerade FME-processer finns.                                                         |
-| **Geometri & Validering**  |                                                                                                                       |
-| Parameternamn för område   | Namnet på den publicerade parametern i FME som ska ta emot områdets geometri. Standard: `AreaOfInterest`.             |
-| Maximal exportyta (m²)     | Högsta tillåtna yta för ett ritat område. Lämna tomt för obegränsad yta.                                              |
-| Varningsgräns för yta (m²) | En varning visas om området överskrider detta värde, för att uppmärksamma användaren på potentiellt långa väntetider. |
-| **Jobbhantering**          |                                                                                                                       |
-| Maximal körtid (s)         | Maximal tid ett jobb får köras innan det avbryts av FME Flow. Gäller endast vid direkt nedladdning.                   |
-| Timeout för förfrågan (ms) | Maximal väntetid (i millisekunder) på svar från FME Flow. Lämna tomt för att invänta svar på obestämd tid.            |
-| **Filhantering**           |                                                                                                                       |
-| Tillåt filuppladdning      | Låter användare ladda upp filer (t.ex. ritningar, referensdata) som indata till FME-processen.                        |
-| Tillåt fjärr-URL (HTTPS)   | Tillåter användare att ange en HTTPS-URL som pekar till en datakälla.                                                 |
-| Uppladdningsparameter      | Namnet på den publicerade parametern som tar emot sökvägen till en uppladdad fil.                                     |
-| **Säkerhet & Meddelanden** |                                                                                                                       |
-| Kräv HTTPS                 | Tvingar all kommunikation med FME Flow att använda HTTPS.                                                             |
-| Maskera e-postadress       | Döljer delar av användarens e-postadress i bekräftelsevyn, t.ex. `a***@exempel.com`.                                  |
-| Supportkontakt             | E-postadress eller länk som visas i felmeddelanden för att guida användaren.                                          |
-| Aktivera loggning          | Aktiverar detaljerad loggning i webbläsarens konsol för felsökning. Bör endast vara aktiv under utveckling.           |
+### FME Flow Server
 
-## Funktionsöversikt
+| Inställning | Beskrivning                                                                |
+| ----------- | -------------------------------------------------------------------------- |
+| Server-URL  | Adress till FME Flow, t.ex. `https://fmeflow.exempel.se`                   |
+| API-token   | Token från FME Flow med behörighet för att läsa repositories och köra jobb |
+| Repository  | Namnet på det repository där publicerade FME-processer finns               |
 
-Tabellen nedan sammanfattar hur funktionerna påverkar dataflödet och när de ska vara aktiva.
+### Geometri & Validering
 
-| Funktion            | Flöde                                                                          | Aktivera när                                          | Stäng av när                                     |
-| ------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------- | ------------------------------------------------ |
-| AOI-parametrering   | `Sketch` → `processDrawingCompletion` → `attachAoi` → FME-parameter            | Workspacen ska klippa mot användarens yta             | Workspacen saknar geometri                       |
-| Synkron nedladdning | `executeJobSubmission` väntar på HTTP-svar och returnerar fil direkt           | Jobb slutar inom max körtid och fil behövs omedelbart | Jobb tar lång tid eller skapar stora paket       |
-| Asynkron e-post     | `prepareSubmissionParams` flaggar async, FME skickar webhook med maskad e-post | Tunga jobb där användaren kan vänta på mejl           | E-post inte används eller profil saknar adress   |
-| Filuppladdning      | `FormData` → `resolveRemoteDataset` → FME Temp → parameter                     | Workspacen kräver filer från klienten                 | Säkerhet förbjuder uppladdning eller Temp saknas |
-| Fjärr-URL (HTTPS)   | `dataset.ts` hämtar HTTPS-källan server-side före jobbstart                    | Data ligger i externa säkra URL:er                    | Proxy saknar internet eller källa är osäker      |
-| Ytgränser & varning | Area beräknas och jämförs med gränser innan `attachAoi`                        | AOI annars överbelastar servern                       | Stora områden är helt tillåtna                   |
-| Maskerad e-post     | `maskEmail` kortar adress i UI/loggar                                          | PII ska döljas på delade skärmar                      | Support måste se hela adressen                   |
-| Kräv HTTPS          | `validateConnectionInputs` stoppar http:// innan klient skapas                 | Widgeten exponeras publikt eller kräver TLS           | Miljön är isolerad utan certifikat               |
-| Aktivera loggning   | `enableLogging` låter `logRequest` och `safeLogParams` skriva i konsolen       | Utveckling och felsökning                             | Produktion där konsolen inte ska visa detaljer   |
+| Inställning                | Beskrivning                                                               | Standard         |
+| -------------------------- | ------------------------------------------------------------------------- | ---------------- |
+| Parameternamn för område   | Namnet på den publicerade parametern i FME som tar emot områdets geometri | `AreaOfInterest` |
+| Maximal exportyta (m²)     | Högsta tillåtna yta                                                       | Obegränsad       |
+| Varningsgräns för yta (m²) | Visar varning vid stora områden som kan ge långa bearbetningstider        | Ingen varning    |
+
+### Jobbhantering
+
+| Inställning                | Beskrivning                                                            | Standard          |
+| -------------------------- | ---------------------------------------------------------------------- | ----------------- |
+| Maximal körtid (s)         | Max körtid innan FME Flow avbryter jobbet. Gäller endast synkrona jobb | Serverns standard |
+| Timeout för förfrågan (ms) | Maximal väntetid på svar från FME Flow                                 | Obegränsad        |
+
+### Filhantering
+
+| Inställning              | Beskrivning                                                                      | Standard       |
+| ------------------------ | -------------------------------------------------------------------------------- | -------------- |
+| Tillåt filuppladdning    | Möjliggör uppladdning av filer som indata till workspace                         | Inaktiverad    |
+| Tillåt fjärr-URL (HTTPS) | Tillåter användare att ange en HTTPS-URL som pekar till en datakälla             | Inaktiverad    |
+| Uppladdningsparameter    | Namnet på den publicerade parametern som tar emot sökvägen till en uppladdad fil | `DEST_DATASET` |
+
+### Säkerhet & Meddelanden
+
+| Inställning          | Beskrivning                                                                         | Standard    |
+| -------------------- | ----------------------------------------------------------------------------------- | ----------- |
+| Kräv HTTPS           | Tvingar all kommunikation med FME Flow att använda HTTPS                            | Inaktiverad |
+| Maskera e-postadress | Döljer delar av användarens e-postadress i bekräftelsevyn, t.ex. `a***@exempel.com` | Inaktiverad |
+| Supportkontakt       | E-post eller länk som visas i felmeddelanden                                        | Tom         |
+| Aktivera loggning    | Detaljerad loggning i webbläsarkonsolen. Endast för utveckling                      | Inaktiverad |
+
+---
+
+## Arkitektur
+
+### Tillståndshantering
+
+- **Redux Store** – UI-tillstånd, formulärdata och geometri via Seamless Immutable
+- **React Query** – Serverdata, workspace-metadata och caching med automatisk retry
+
+### Centrala Services
+
+| Service                | Ansvar                                                   |
+| ---------------------- | -------------------------------------------------------- |
+| `FmeFlowApiClient`     | Kommunikation med FME Flow REST API med retry & loggning |
+| `ParameterFormService` | Genererar dynamiska formulär från workspace-parametrar   |
+| `VisibilityEvaluator`  | Utvärderar synlighetskedjor för formulärfält             |
+| Valideringsflöden      | Orchestrerar uppstart, anslutning och geometrivalidering |
+| Rittjänster            | Hanterar SketchViewModel-livscykel och AOI-bearbetning   |
+
+### Katalogstruktur
+
+```text
+src/
+├── runtime/          # Widget-UI och arbetsflöde
+├── setting/          # Konfigurationspanel i Builder
+├── shared/
+│   ├── api.ts       # FME Flow API-klient
+│   ├── hooks.ts     # Custom React hooks
+│   ├── services/    # Affärslogiklager
+│   └── utils/       # Hjälpfunktioner
+├── config/          # Typer, konstanter, enums, styling
+└── extensions/      # Redux store och actions
+```
+
+### Dataflöde
+
+1. **Uppstartsvalidering** – Verifierar kart-binding, config och FME-anslutning
+2. **Rita område (AOI)** – Användaren ritar polygon/rektangel i kartan
+3. **Välj workspace** – Hämtar tillgängliga FME-processer från repository
+4. **Dynamiskt formulär** – Genereras automatiskt från workspace-parametrar
+5. **Skicka jobb** – Orchestrerar AOI-attach, parametrar och submission
+6. **Resultat** – Hanterar nedladdning eller e-postleverans
+
+---
+
+## Bidra till projektet
+
+### Utvecklingsflöde
+
+1. **Forka & klona** – Skapa egen fork för anpassningar
+2. **Branch-namn** – Prefix `feature/`, `fix/`, `docs/`
+3. **Kodstil** – Single quotes, inga semicolons, Emotion CSS-in-JS
+4. **Commits** – Conventional Commits-format
+
+### Testkrav
+
+- Placera tester i `src/tests/` eller som `*.test.ts(x)` bredvid källkoden
+- Använd Jest + React Testing Library (`jimu-for-test`)
+- Mocka ArcGIS-moduler med `__ESRI_TEST_STUB__`
+- Stubba nätverksanrop och FME Flow-endpoints
+- Kör `npm run test` innan du skickar in ändringar
+
+### Checklista innan PR
+
+- [ ] `npm run lint` går igenom
+- [ ] `npm run type-check` går igenom
+- [ ] `npm run test` går igenom
+- [ ] Översättningar uppdaterade (Svenska/Engelska)
+- [ ] Token-maskning tillämpat i loggar
+- [ ] Config-sanering implementerad
+
+### Pull Request
+
+1. Beskriv ändringar och syfte
+2. Bifoga skärmdumpar vid UI-ändringar
+3. Referera relaterade issues
+4. Invänta review och CI-kontroller
+
+---
 
 ## Felkoder
 
-Tabellerna nedan beskriver alla felkoder som kan visas i widgeten. Varje rad summerar varför koden triggas och hur den löses.
-
 ### Konfiguration och uppstart
 
-| Felkod(er)                                         | Orsak                                 | Åtgärd                                                   |
+| Felkod                                             | Orsak                                 | Åtgärd                                                   |
 | -------------------------------------------------- | ------------------------------------- | -------------------------------------------------------- |
 | WIDGET_ID_MISSING                                  | Widget saknas i layout                | Lägg tillbaka widgeten och publicera                     |
 | MAP_MODULES_LOAD_FAILED                            | ArcGIS-moduler blockerades            | Kontrollera nätverk/CSP och ladda om                     |
@@ -156,7 +254,7 @@ Tabellerna nedan beskriver alla felkoder som kan visas i widgeten. Varje rad sum
 
 ### Geometri och ritning
 
-| Felkod(er)                                    | Orsak                          | Åtgärd                                    |
+| Felkod                                        | Orsak                          | Åtgärd                                    |
 | --------------------------------------------- | ------------------------------ | ----------------------------------------- |
 | ABORTED                                       | Ritning avbröts                | Rita området igen                         |
 | NO_GEOMETRY / GEOMETRY_MISSING                | Ingen polygon skickades        | Avsluta med dubbelklick och rita om       |
@@ -172,7 +270,7 @@ Tabellerna nedan beskriver alla felkoder som kan visas i widgeten. Varje rad sum
 
 ### Formulär, parametrar och jobb
 
-| Felkod(er)                        | Orsak                                    | Åtgärd                                                |
+| Felkod                            | Orsak                                    | Åtgärd                                                |
 | --------------------------------- | ---------------------------------------- | ----------------------------------------------------- |
 | FORM_INVALID                      | Frontend stoppade formuläret             | Rätta markerade fält                                  |
 | PARAMETER_VALIDATION_ERROR        | FME:s publicerade validering slog till   | Justera indata eller regler i workspace               |
@@ -187,7 +285,7 @@ Tabellerna nedan beskriver alla felkoder som kan visas i widgeten. Varje rad sum
 
 ### Data, webhookar och resultat
 
-| Felkod(er)                              | Orsak                            | Åtgärd                                                   |
+| Felkod                                  | Orsak                            | Åtgärd                                                   |
 | --------------------------------------- | -------------------------------- | -------------------------------------------------------- |
 | DATA_UPLOAD_ERROR                       | Temp-uppladdning misslyckades    | Kontrollera filstorlek, Temp-anslutning och token        |
 | DATA_DOWNLOAD_ERROR                     | Webhook-download gav fel         | Kör jobbet i FME och granska nätverk                     |
@@ -203,24 +301,33 @@ Tabellerna nedan beskriver alla felkoder som kan visas i widgeten. Varje rad sum
 | NO_RESULT                               | Inget orderresultat sparades     | Kör export igen eller hämta från Flow                    |
 | NO_DATA                                 | Jobbet gav inga data             | Säkerställ att workspace producerar utdata               |
 
+---
+
 ## Utveckling
 
 ### NPM-kommandon
 
-Använd följande kommandon för att hantera utvecklingslivscykeln.
+| Kommando             | Syfte                                    |
+| -------------------- | ---------------------------------------- |
+| `npm start`          | Startar utvecklingsserver med watch-läge |
+| `npm run build:dev`  | Skapar ett utvecklingsbygge              |
+| `npm run build:prod` | Skapar ett minifierat produktionsbygge   |
+| `npm run test`       | Kör enhetstester med Jest                |
+| `npm run lint`       | Granskar koden med ESLint                |
+| `npm run type-check` | Validerar TypeScript-typer               |
 
 ```bash
-npm start         # Startar utvecklingsserver med watch-läge
-npm run build:dev   # Skapar ett utvecklingsbygge
-npm run build:prod  # Skapar ett minifierat produktionsbygge
-npm run test        # Kör enhetstester med Jest
-npm run lint        # Granskar koden med ESLint
-npm run type-check  # Validerar TypeScript-typer
+npm start
+npm run build:dev
+npm run build:prod
+npm run test
+npm run lint
+npm run type-check
 ```
 
 ### Testning
 
-Projektet är konfigurerat för Jest och React Testing Library. Testfiler ska placeras i `src/tests/` eller som `*.test.ts(x)` bredvid källkoden. För närvarande finns inga tester implementerade.
+Konfigurerat för Jest och React Testing Library. Placera testfiler i `src/tests/` eller som `*.test.ts(x)` vid källkoden. Inga tester implementerade ännu.
 
 ### Felsökning
 
@@ -235,14 +342,16 @@ window.__FME_DEBUG__ = {
 
 **Vanliga felkällor:**
 
-- **Ogiltig token:** Kontrollera att din API-token har korrekta behörigheter i FME Flow.
-- **Inga workspaces:** Säkerställ att processer är publicerade till det valda repositoryt och att din token har åtkomst.
-- **Geometrifel:** Undvik självöverlappande polygoner och kontrollera `maxArea`-inställningen.
+- **Ogiltig token** – Kontrollera att din API-token har korrekta behörigheter i FME Flow
+- **Inga workspaces** – Säkerställ att processer är publicerade till det valda repositoryt och att din token har åtkomst
+- **Geometrifel** – Undvik självöverlappande polygoner och kontrollera `maxArea`-inställningen
+
+---
 
 ## Support och resurser
 
-- **Frågor och diskussioner:** [GitHub Discussions](https://github.com/j0hanz/fme-export-widget/discussions)
-- **Buggrapporter och förslag:** [GitHub Issues](https://github.com/j0hanz/fme-export-widget/issues)
-- **FME Flow REST API:** [Dokumentation](https://docs.safe.com/fme/html/fmeapiv4/docs/index.html)
-- **Experience Builder SDK:** [Dokumentation](https://developers.arcgis.com/experience-builder/)
-- **Presentation:** [FME Användarträff 2025](https://github.com/user-attachments/files/23019353/FMEAnvandartraff2025.pdf)
+- **Frågor och diskussioner** – [GitHub Discussions](https://github.com/j0hanz/fme-export-widget/discussions)
+- **Buggrapporter och förslag** – [GitHub Issues](https://github.com/j0hanz/fme-export-widget/issues)
+- **FME Flow REST API** – [Dokumentation](https://docs.safe.com/fme/html/fmeapiv4/docs/index.html)
+- **Experience Builder SDK** – [Dokumentation](https://developers.arcgis.com/experience-builder/)
+- **Presentation** – [FME Användarträff 2025](https://github.com/user-attachments/files/23019353/FMEAnvandartraff2025.pdf)
